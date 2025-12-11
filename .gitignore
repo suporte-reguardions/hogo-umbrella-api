@@ -1,0 +1,14 @@
+# Dependências do Node
+node_modules/
+
+# Variáveis de ambiente (Segurança máxima aqui, nunca suba o .env)
+.env
+
+# Logs e arquivos de sistema
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Pastas de IDE
+.vscode/
+.idea/
