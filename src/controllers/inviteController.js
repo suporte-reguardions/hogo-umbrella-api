@@ -5,7 +5,7 @@ const generate = async (req, res) => {
         const { type, provider, providerIdentity } = req.body;
 
         // Validação básica de entrada
-        if (!type || !provider) {
+        if (!type) {
             return res.status(400).json({ error: 'Type e Provider são obrigatórios.' });
         }
 
@@ -48,7 +48,7 @@ const bulkGenerate = async (req, res) => {
         if (!amount || amount <= 0) {
             return res.status(400).json({ error: 'Informe uma quantidade válida (amount).' });
         }
-        if (!type || !provider) {
+        if (!type) {
             return res.status(400).json({ error: 'Type e Provider são obrigatórios.' });
         }
 

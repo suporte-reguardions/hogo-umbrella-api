@@ -7,9 +7,12 @@ const createInvite = async (data) => {
     let attempts = 0;
     let newInvite;
 
+    // ALTERAÇÃO: Define Hogo se provider não vier
+    const providerName = data.provider || 'Hogo';
+    const providerIdentity = data.providerIdentity || 'HOGO';
+
     while (!created && attempts < 5) {
         const code = generateUniqueCode();
-        const providerIdentity = data.providerIdentity || 'HOGO';
 
         try {
             const query = `
@@ -18,7 +21,8 @@ const createInvite = async (data) => {
                 RETURNING *;
             `;
             
-            const values = [code, data.type, false, data.provider, providerIdentity];
+            // ALTERAÇÃO: Usa providerName no lugar de data.provider
+            const values = [code, data.type, false, providerName, providerIdentity];
             const result = await db.query(query, values);
             newInvite = result.rows[0];
             created = true;
@@ -39,7 +43,11 @@ const createInvite = async (data) => {
 // 2. CRIAR EM LOTE (BULK)
 const createBatch = async (amount, data) => {
     const createdCodes = [];
+    
+    // ALTERAÇÃO: Define Hogo se provider não vier
+    const providerName = data.provider || 'Hogo';
     const providerIdentity = data.providerIdentity || 'HOGO';
+    
     let remaining = parseInt(amount);
 
     while (remaining > 0) {
@@ -54,7 +62,10 @@ const createBatch = async (amount, data) => {
         const valuesClause = [];
         for (const code of codesBatch) {
             valuesClause.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4})`);
-            params.push(code, data.type, false, data.provider, providerIdentity);
+            
+            // ALTERAÇÃO: Usa providerName no lugar de data.provider
+            params.push(code, data.type, false, providerName, providerIdentity);
+            
             paramIndex += 5;
         }
 
