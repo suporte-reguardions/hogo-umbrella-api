@@ -105,6 +105,23 @@ const userWallet = async (req, res) => {
     }
 };
 
+// Verificar se tem cupons ativos (leve)
+const checkActive = async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const result = await inviteService.hasActiveInvites(userId);
+        
+        return res.status(200).json(result);
+        // Retorna: { hasInvites: true, count: 2 }
+        
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Erro ao verificar cupons.' });
+    }
+};
+
+
 // ATENÇÃO: Atualize a função 'list' existente para passar todos os filtros do req.query
 const list = async (req, res) => {
     try {
@@ -175,5 +192,6 @@ module.exports = {
     list, 
     syncHistory, 
     history,
-    markSent
+    markSent,
+    checkActive
 };

@@ -264,6 +264,29 @@ const getUserWallet = async (userId, type = 'active', page = 1, limit = 10) => {
     };
 };
 
+// 8. VERIFICAR SE USUÁRIO TEM CUPONS ATIVOS (apenas contagem)
+const hasActiveInvites = async (userId) => {
+    // PROTEÇÃO: GUEST NÃO PODE VERIFICAR
+    if (!userId || userId === 'guest') {
+        return { hasInvites: false, count: 0 };
+    }
+
+    const query = `
+        SELECT COUNT(*) as total 
+        FROM invites 
+        WHERE user_id = $1 
+        AND is_used = false
+    `;
+    
+    const result = await db.query(query, [userId]);
+    const count = parseInt(result.rows[0].total);
+
+    return {
+        hasInvites: count > 0,
+        count: count
+    };
+};
+
 // Marca como enviado
 const markAsSent = async (code) => {
     const checkQuery = `SELECT * FROM invites WHERE code = $1`;
@@ -299,5 +322,6 @@ module.exports = {
     activateInvite, 
     syncGuestHistory, 
     getUserWallet,
-    markAsSent 
+    markAsSent,
+    hasActiveInvites
 };

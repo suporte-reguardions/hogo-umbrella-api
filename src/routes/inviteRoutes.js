@@ -19,6 +19,7 @@ router.post('/sync-guest', inviteController.syncHistory); // Login/Sync
 router.patch('/mark-sent/:code', inviteController.markSent); // Marca como enviado
 
 // Perfil do Usuário
-router.get('/wallet/:userId', inviteController.userWallet);
+router.get('/wallet/:userId', inviteController.userWallet);// Carteira de cupom ativo do usuário
+router.get('/check-active/:userId', inviteController.checkActive); // Verifica cupom ativos true e false
 
 module.exports = router;
