@@ -10,6 +10,7 @@ const corsOptions = {
         'http://localhost:3000',      // Testes locais
         'https://subpericardiac-bea-interrelatedly.ngrok-free.dev', // Ngrok
         'https://hogo-umbrella.myshopify.com', // SUA LOJA SHOPIFY
+        'https://hogo-umbrella-api.onrender.com', // Sua API hospedada
         'https://admin.shopify.com' // Admin da Shopify (caso precise)
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
