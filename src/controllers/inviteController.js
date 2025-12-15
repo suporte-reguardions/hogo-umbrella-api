@@ -148,6 +148,23 @@ const history = async (req, res) => {
     res.json(data);
 };
 
+// Função que marca um convite como enviado
+const markSent = async (req, res) => {
+    try {
+        const { code } = req.params;
+
+        const invite = await inviteService.markAsSent(code);
+        
+        return res.status(200).json({
+            message: 'Código marcado como enviado com sucesso.',
+            data: invite
+        });
+
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
+    }
+};
+
 // Atualize o exports
 module.exports = { 
     generate, 
@@ -157,5 +174,6 @@ module.exports = {
     userWallet, 
     list, 
     syncHistory, 
-    history 
+    history,
+    markSent
 };

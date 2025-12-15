@@ -108,17 +108,28 @@ const listInvites = async (filters, page = 1, limit = 10) => {
         }
     };
 
-    // Aplica os filtros
     addFilter('code', filters.code);
     addFilter('type', filters.type);
     addFilter('provider', filters.provider, 'ILIKE');
     addFilter('provider_identity', filters.providerIdentity, 'ILIKE');
     addFilter('user_email', filters.user_email, 'ILIKE');
     
+    // FILTRO DE BUSCA GLOBAL
+    if (filters.search) {
+        query += ` AND (code ILIKE $${paramIndex} OR user_email ILIKE $${paramIndex} OR provider ILIKE $${paramIndex})`;
+        countQuery += ` AND (code ILIKE $${paramIndex} OR user_email ILIKE $${paramIndex} OR provider ILIKE $${paramIndex})`;
+        params.push(`%${filters.search}%`);
+        paramIndex++;
+    }
+    
     // Filtro Boolean
     if (filters.is_used === 'true' || filters.is_used === true) addFilter('is_used', true);
     if (filters.is_used === 'false' || filters.is_used === false) addFilter('is_used', false);
 
+    // Filtro por enviado
+    if (filters.is_sent === 'true' || filters.is_sent === true) addFilter('is_sent', true);
+    if (filters.is_sent === 'false' || filters.is_sent === false) addFilter('is_sent', false);
+    
     // Filtro de Data
     if (filters.startDate) {
         query += ` AND created_at >= $${paramIndex}`;
@@ -253,7 +264,33 @@ const getUserWallet = async (userId, type = 'active', page = 1, limit = 10) => {
     };
 };
 
-// 8. EXPORTAR TUDO
+// Marca como enviado
+const markAsSent = async (code) => {
+    const checkQuery = `SELECT * FROM invites WHERE code = $1`;
+    const checkResult = await db.query(checkQuery, [code]);
+
+    if (checkResult.rows.length === 0) {
+        throw new Error('Código não encontrado.');
+    }
+
+    const invite = checkResult.rows[0];
+
+    if (invite.is_sent) {
+        throw new Error('Este código já foi marcado como enviado.');
+    }
+
+    const updateQuery = `
+        UPDATE invites 
+        SET is_sent = true, 
+            sent_at = NOW()
+        WHERE code = $1
+        RETURNING *;
+    `;
+
+    const result = await db.query(updateQuery, [code]);
+    return result.rows[0];
+};
+
 module.exports = { 
     createInvite, 
     createBatch, 
@@ -261,5 +298,6 @@ module.exports = {
     claimInvite, 
     activateInvite, 
     syncGuestHistory, 
-    getUserWallet 
+    getUserWallet,
+    markAsSent 
 };

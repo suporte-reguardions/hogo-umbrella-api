@@ -7,17 +7,18 @@ const app = express();
 // CONFIGURAÇÃO DE SEGURANÇA (CORS)
 const corsOptions = {
     origin: [
-        'http://localhost:3000',      // Permite seus testes locais
-        'https://subpericardiac-bea-interrelatedly.ngrok-free.dev'
-        // 'https://sua-loja-shopify.com' // <-- Quando subir pro ar, descomente e coloque o site da sua loja aqui
+        'http://localhost:3000',      // Testes locais
+        'https://subpericardiac-bea-interrelatedly.ngrok-free.dev', // Ngrok
+        'https://hogo-umbrella.myshopify.com', // SUA LOJA SHOPIFY
+        'https://admin.shopify.com' // Admin da Shopify (caso precise)
     ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    // IMPORTANTE: Permitir que o 'x-api-key' seja enviado
-    allowedHeaders: ['Content-Type', 'x-api-key'], 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'x-api-key', 'x-shopify-customer-id', 'x-shopify-timestamp', 'x-shopify-signature'],
+    credentials: true, // Permite envio de cookies/credenciais
     optionsSuccessStatus: 200
 };
 
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Rotas
