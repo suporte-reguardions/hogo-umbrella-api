@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const inviteRoutes = require('./routes/inviteRoutes');
+const webhookRoutes = require('./routes/webhookRoutes'); 
 
 const app = express();
 
@@ -18,6 +19,14 @@ const corsOptions = {
     credentials: true, // Permite envio de cookies/credenciais
     optionsSuccessStatus: 200
 };
+
+// Webhook que pega id do usuario no pedido
+// Shopify precisa do raw body para verificar assinatura HMAC
+app.use('/api/webhooks', express.raw({type: 'application/json'}), (req, res, next) => {
+    req.rawBody = req.body.toString('utf8');
+    req.body = JSON.parse(req.rawBody);
+    next();
+}, webhookRoutes);
 
 app.use(cors(corsOptions));
 app.use(express.json());
