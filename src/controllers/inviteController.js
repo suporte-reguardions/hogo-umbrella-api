@@ -182,6 +182,49 @@ const markSent = async (req, res) => {
     }
 };
 
+const validateCheckoutAccess = async (req, res) => {
+    try {
+        const { userId } = req.body;
+
+        // 1. BLOQUEIA se não tiver userId (deslogado)
+        if (!userId || userId === 'guest') {
+            return res.status(403).json({ 
+                canCheckout: false,
+                requiresLogin: true,
+                message: 'Login required to access checkout.'
+            });
+        }
+
+        // 2. VERIFICA se tem cupons ativos
+        const result = await inviteService.hasActiveInvites(userId);
+
+        if (!result.hasInvites || result.count === 0) {
+            // 3. NÃO TEM CUPOM = BLOQUEIA
+            return res.status(403).json({ 
+                canCheckout: false,
+                requiresInvite: true,
+                hasInvites: false,
+                message: 'Active invitation code required to proceed.'
+            });
+        }
+
+        // 4. TEM CUPOM = LIBERA
+        return res.status(200).json({
+            canCheckout: true,
+            hasInvites: true,
+            inviteCount: result.count,
+            message: 'Checkout authorized'
+        });
+
+    } catch (error) {
+        console.error('Checkout validation error:', error);
+        return res.status(500).json({ 
+            canCheckout: false,
+            error: 'Validation failed' 
+        });
+    }
+};
+
 // Atualize o exports
 module.exports = { 
     generate, 
@@ -193,5 +236,6 @@ module.exports = {
     syncHistory, 
     history,
     markSent,
-    checkActive
+    checkActive,
+    validateCheckoutAccess
 };

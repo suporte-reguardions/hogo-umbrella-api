@@ -22,4 +22,7 @@ router.patch('/mark-sent/:code', inviteController.markSent); // Marca como envia
 router.get('/wallet/:userId', inviteController.userWallet);// Carteira de cupom ativo do usuário
 router.get('/check-active/:userId', inviteController.checkActive); // Verifica cupom ativos true e false
 
+// Valida Checkout
+router.post('/validate-checkout-access', inviteController.validateCheckoutAccess); // Valida acesso ao checkout via cupom
+
 module.exports = router;
