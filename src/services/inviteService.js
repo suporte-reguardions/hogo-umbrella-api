@@ -172,11 +172,18 @@ const claimInvite = async (code, userData) => {
     if (checkResult.rows.length === 0) throw new Error('Invalid code.');
     const invite = checkResult.rows[0];
 
-    // Validações
-    if (invite.user_email && invite.user_email !== userData.email) {
+
+    if (invite.user_id && invite.user_id !== userData.userId) {
         throw new Error('This coupon already belongs to another user.');
     }
-    if (invite.is_used) throw new Error('This coupon has already been used.');
+
+    if (invite.user_id === userData.userId) {
+        throw new Error('This coupon is already in your wallet.');
+    }
+
+    if (invite.is_used) {
+        throw new Error('This coupon has already been used.');
+    }
 
     const userId = userData.userId || 'guest';
     
