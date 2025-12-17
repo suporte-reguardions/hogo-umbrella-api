@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const inviteController = require('../controllers/inviteController');
-const verifyApiKey = require('../middlewares/auth'); // Importa a segurança
+const verifyShopifyHmac = require('../middlewares/verifyShopifyHmac'); // Importa a segurança
 
 // --- APLICA A SEGURANÇA EM TUDO ---
 // O "porteiro" fica aqui. Ninguém passa dessa linha sem a chave.
-router.use(verifyApiKey); 
+router.use(verifyShopifyHmac);
 
 // Admin
 router.post('/generate', inviteController.generate);

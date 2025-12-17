@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const inviteRoutes = require('./routes/inviteRoutes');
 const webhookRoutes = require('./routes/webhookRoutes'); 
+const productCycleRoutes = require('./routes/productCycleRoutes');
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use(express.json());
 
 // Rotas
 app.use('/api/invites', inviteRoutes);
+app.use('/api/product-cycles', productCycleRoutes);
 
 const PORT = process.env.PORT || 3000;
 
