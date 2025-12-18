@@ -203,23 +203,52 @@ const claimInvite = async (code, userData) => {
 
 // 5. GASTAR O CUPOM (ACTIVATE/BURN)
 const activateInvite = async (code, userData) => {
-    // Garante que o cupom é válido/pertence ao usuário antes de gastar
-    let invite;
-    try {
-        invite = await claimInvite(code, userData); 
-    } catch (e) {
-        throw e;
+    const checkQuery = `SELECT * FROM invites WHERE code = $1`;
+    const checkResult = await db.query(checkQuery, [code]);
+
+    if (checkResult.rows.length === 0) {
+        throw new Error('Invalid code.');
     }
 
+    const invite = checkResult.rows[0];
+
+    // Verifica se pertence a outro usuário
+    if (invite.user_id && invite.user_id !== userData.userId) {
+        throw new Error('This coupon already belongs to another user.');
+    }
+
+    // Verifica se já foi usado
+    if (invite.is_used) {
+        throw new Error('This coupon has already been used.');
+    }
+
+    // Se não pertence a ninguém ainda, reclama primeiro
+    if (!invite.user_id) {
+        const userId = userData.userId || 'guest';
+        
+        const claimQuery = `
+            UPDATE invites 
+            SET user_email = $1, 
+                user_id = $2,
+                claimed_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $3
+            RETURNING *;
+        `;
+        
+        await db.query(claimQuery, [userData.email, userId, invite.id]);
+    }
+
+    // Agora ativa/queima o cupom
     const burnQuery = `
         UPDATE invites 
         SET is_used = true, 
             updated_at = NOW()
-        WHERE id = $1
+        WHERE code = $1
         RETURNING *;
     `;
     
-    const result = await db.query(burnQuery, [invite.id]);
+    const result = await db.query(burnQuery, [code]);
     return result.rows[0];
 };
 
