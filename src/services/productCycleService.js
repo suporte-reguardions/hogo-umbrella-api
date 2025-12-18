@@ -190,61 +190,66 @@ const organizeProductsByMonth = (products) => {
     };
 };
 
-// NOVA FUNÇÃO - Determina os 3 slots
+// Determina os 3 slots baseado na FASE ATUAL
 const determineProductSlots = (products, currentDate) => {
     const day = currentDate.getDate();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = (currentDate.getMonth() + 1).toString().padStart(2, '0');
-    const currentMonthKey = `${currentYear}-${currentMonth}`;
 
-    const { productsByMonth, sortedMonths } = organizeProductsByMonth(products);
+    console.log(`📅 Data atual: ${currentDate.toISOString().split('T')[0]} (dia ${day})`);
 
-    console.log(`📅 Mês atual: ${currentMonthKey}`);
-    console.log(`📦 Meses disponíveis:`, sortedMonths);
+    // Filtra apenas produtos com fase válida (não draft/archived)
+    const activeProducts = products.filter(p => 
+        p.currentPhase === 'public' || p.currentPhase === 'preorder'
+    );
 
-    let startIndex = sortedMonths.indexOf(currentMonthKey);
-
-    // Se não encontrou o mês atual, busca o próximo disponível
-    if (startIndex === -1) {
-        console.warn(`⚠️ Mês ${currentMonthKey} não encontrado. Buscando próximo disponível...`);
-        
-        startIndex = sortedMonths.findIndex(monthKey => monthKey > currentMonthKey);
-        
-        if (startIndex === -1) {
-            console.warn(`⚠️ Nenhum mês futuro encontrado. Usando primeiro disponível.`);
-            startIndex = 0;
-        }
+    if (activeProducts.length === 0) {
+        console.warn('⚠️ Nenhum produto ativo (public/preorder) encontrado!');
+        return { slot1: null, slot2: null, slot3: null };
     }
 
-    // Dia 8+ avança 1 posição
-    if (day >= 8) {
-        startIndex += 1;
+    // Ordena por data de referência
+    activeProducts.sort((a, b) => {
+        return new Date(a.dataReferencia) - new Date(b.dataReferencia);
+    });
+
+    console.log('📦 Produtos ativos ordenados:', activeProducts.map(p => 
+        `${p.title} (${p.dataReferencia}) - ${p.currentPhase}`
+    ));
+
+    // 🎯 LÓGICA PRINCIPAL:
+    // - Dias 1-7: Slot1 = produto PUBLIC do mês atual
+    // - Dias 8-31: Slot1 = produto PREORDER (próximo mês)
+    // - Slot2 e Slot3 = próximos na fila
+
+    let slot1, slot2, slot3;
+
+    if (day >= 1 && day <= 7) {
+        // VENDA PÚBLICA: Pega produto com fase 'public'
+        slot1 = activeProducts.find(p => p.currentPhase === 'public') || activeProducts[0];
+        
+        // Próximos: Pega os próximos após o slot1
+        const remainingProducts = activeProducts.filter(p => p !== slot1);
+        slot2 = remainingProducts[0] || null;
+        slot3 = remainingProducts[1] || null;
+
+    } else {
+        // PRÉ-VENDA (dia 8+): Pega produto com fase 'preorder'
+        slot1 = activeProducts.find(p => p.currentPhase === 'preorder') || activeProducts[0];
+        
+        // Próximos: Pega os próximos após o slot1
+        const remainingProducts = activeProducts.filter(p => p !== slot1);
+        slot2 = remainingProducts[0] || null;
+        slot3 = remainingProducts[1] || null;
     }
-
-    // Busca circular: se passar do final, volta pro início
-    const getSlot = (index) => {
-        if (index >= sortedMonths.length) {
-            const wrappedIndex = index % sortedMonths.length;
-            console.log(`🔄 Slot ${index} passou do limite. Usando índice circular: ${wrappedIndex}`);
-            return productsByMonth[sortedMonths[wrappedIndex]] || null;
-        }
-        return productsByMonth[sortedMonths[index]] || null;
-    };
-
-    const slot1 = getSlot(startIndex);
-    const slot2 = getSlot(startIndex + 1);
-    const slot3 = getSlot(startIndex + 2);
 
     console.log(`🎯 Slots determinados:`);
-    console.log(`   Índice inicial: ${startIndex}`);
-    console.log(`   Slot 1 (índice ${startIndex}): ${slot1?.title || 'Nenhum'} - ${slot1?.dataReferencia || 'N/A'}`);
-    console.log(`   Slot 2 (índice ${startIndex + 1}): ${slot2?.title || 'Nenhum'} - ${slot2?.dataReferencia || 'N/A'}`);
-    console.log(`   Slot 3 (índice ${startIndex + 2}): ${slot3?.title || 'Nenhum'} - ${slot3?.dataReferencia || 'N/A'}`);
+    console.log(`   Slot 1 (Atual): ${slot1?.title || 'Nenhum'} - ${slot1?.dataReferencia || 'N/A'} [${slot1?.currentPhase || 'N/A'}]`);
+    console.log(`   Slot 2 (Próximo): ${slot2?.title || 'Nenhum'} - ${slot2?.dataReferencia || 'N/A'} [${slot2?.currentPhase || 'N/A'}]`);
+    console.log(`   Slot 3 (Seguinte): ${slot3?.title || 'Nenhum'} - ${slot3?.dataReferencia || 'N/A'} [${slot3?.currentPhase || 'N/A'}]`);
 
     return { slot1, slot2, slot3 };
 };
 
-// NOVA FUNÇÃO - Atualiza os 3 metafields da loja
+// Atualiza os 3 metafields da loja
 const updateProductSlots = async (slot1, slot2, slot3) => {
     try {
         console.log('🔄 Atualizando metafields da loja...');
@@ -252,9 +257,9 @@ const updateProductSlots = async (slot1, slot2, slot3) => {
         const metafields = await shopifyRequest('metafields.json?metafield[owner_resource]=shop');
         
         const slots = [
-            { key: 'current_month_product', product: slot1, label: 'Mês Atual' },
-            { key: 'next_month_product', product: slot2, label: 'Próximo Mês' },
-            { key: 'following_month_product', product: slot3, label: 'Mês Seguinte' }
+            { key: 'current_month_product', product: slot1, label: 'Produto Atual' },
+            { key: 'next_month_product', product: slot2, label: 'Próximo Produto' },
+            { key: 'following_month_product', product: slot3, label: 'Produto Seguinte' }
         ];
 
         for (const slot of slots) {
@@ -270,6 +275,13 @@ const updateProductSlots = async (slot1, slot2, slot3) => {
             const gid = `gid://shopify/Product/${slot.product.id}`;
 
             if (existingMeta) {
+                // 🆕 Valida tipo do metafield
+                if (existingMeta.type !== 'product_reference') {
+                    console.error(`❌ ${slot.label}: Tipo errado (${existingMeta.type}). Delete e recrie como 'product_reference' no admin da Shopify!`);
+                    console.error(`   Settings > Custom Data > Shops > Delete "${slot.key}" e recrie.`);
+                    continue;
+                }
+
                 // Atualiza apenas se mudou
                 if (existingMeta.value !== gid) {
                     await shopifyRequest(
@@ -282,12 +294,13 @@ const updateProductSlots = async (slot1, slot2, slot3) => {
                             }
                         }
                     );
-                    console.log(`✅ ${slot.label} atualizado: ${slot.product.title}`);
+                    console.log(`✅ ${slot.label} atualizado: ${slot.product.title} [${slot.product.currentPhase}]`);
                 } else {
-                    console.log(`ℹ️ ${slot.label} já está correto: ${slot.product.title}`);
+                    console.log(`ℹ️ ${slot.label} já está correto: ${slot.product.title} [${slot.product.currentPhase}]`);
                 }
             } else {
-                // Cria metafield
+                // Cria metafield (não deveria acontecer se criou no admin)
+                console.log(`🆕 Criando ${slot.label}...`);
                 await shopifyRequest(
                     'metafields.json',
                     'POST',
@@ -301,7 +314,7 @@ const updateProductSlots = async (slot1, slot2, slot3) => {
                         }
                     }
                 );
-                console.log(`✅ ${slot.label} criado: ${slot.product.title}`);
+                console.log(`✅ ${slot.label} criado: ${slot.product.title} [${slot.product.currentPhase}]`);
             }
         }
 
@@ -324,8 +337,6 @@ const checkUpcomingProducts = (sortedMonths, currentDate) => {
         console.warn(`⚠️ ALERTA: Cadastre o produto de ${targetMonth} em breve!`);
     }
 };
-
-// MODIFICADA - Função principal
 const processProductCycles = async () => {
     try {
         console.log('🔄 Iniciando processamento de ciclos de produtos...');
@@ -353,7 +364,7 @@ const processProductCycles = async () => {
         console.log(`📦 Total de produtos encontrados: ${allProducts.length}`);
 
         let updatedCount = 0;
-        const productsWithDate = []; // Lista de produtos com data_referencia
+        const productsWithDate = [];
 
         for (const product of allProducts) {
             const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
@@ -370,7 +381,6 @@ const processProductCycles = async () => {
             const dataReferencia = dataRefMeta.value;
             const currentPhase = determineProductPhase(dataReferencia, settings);
 
-            // Adiciona à lista com data_referencia
             productsWithDate.push({
                 ...product,
                 dataReferencia,
@@ -425,21 +435,17 @@ const processProductCycles = async () => {
             }
         }
 
-        // Determina e atualiza os 3 slots
+        // Determina e atualiza os 3 slots BASEADO NA FASE
         const { slot1, slot2, slot3 } = determineProductSlots(productsWithDate, now);
-        
-        // Alerta de produtos faltando
-        const { sortedMonths } = organizeProductsByMonth(productsWithDate);
-        checkUpcomingProducts(sortedMonths, now);
         
         // Atualiza metafields da loja
         await updateProductSlots(slot1, slot2, slot3);
 
         console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
         console.log(`📅 Slots atuais:`);
-        console.log(`   Slot 1 (Mês Atual): ${slot1?.title || 'Nenhum'}`);
-        console.log(`   Slot 2 (Próximo): ${slot2?.title || 'Nenhum'}`);
-        console.log(`   Slot 3 (Seguinte): ${slot3?.title || 'Nenhum'}`);
+        console.log(`   Slot 1 (Atual): ${slot1?.title || 'Nenhum'} [${slot1?.currentPhase || 'N/A'}]`);
+        console.log(`   Slot 2 (Próximo): ${slot2?.title || 'Nenhum'} [${slot2?.currentPhase || 'N/A'}]`);
+        console.log(`   Slot 3 (Seguinte): ${slot3?.title || 'Nenhum'} [${slot3?.currentPhase || 'N/A'}]`);
 
         return {
             success: true,
@@ -447,8 +453,11 @@ const processProductCycles = async () => {
             updated: updatedCount,
             slots: {
                 current: slot1?.title || 'Nenhum',
+                currentPhase: slot1?.currentPhase || 'N/A',
                 next: slot2?.title || 'Nenhum',
-                following: slot3?.title || 'Nenhum'
+                nextPhase: slot2?.currentPhase || 'N/A',
+                following: slot3?.title || 'Nenhum',
+                followingPhase: slot3?.currentPhase || 'N/A'
             }
         };
 
