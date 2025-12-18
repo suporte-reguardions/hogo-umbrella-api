@@ -167,176 +167,7 @@ const updateProductStatus = async (productId, phase, tags) => {
     console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
 };
 
-// NOVA FUNÇÃO - Organiza produtos por mês
-const organizeProductsByMonth = (products) => {
-    const productsByMonth = {};
-
-    products.forEach(product => {
-        if (!product.dataReferencia) return;
-
-        const [year, month] = product.dataReferencia.split('-');
-        const monthKey = `${year}-${month}`;
-
-        if (!productsByMonth[monthKey]) {
-            productsByMonth[monthKey] = product;
-        }
-    });
-
-    const sortedMonths = Object.keys(productsByMonth).sort();
-
-    return {
-        productsByMonth,
-        sortedMonths
-    };
-};
-
-// Determina os 3 slots baseado na FASE ATUAL
-const determineProductSlots = (products, currentDate) => {
-    const day = currentDate.getDate();
-
-    console.log(`📅 Data atual: ${currentDate.toISOString().split('T')[0]} (dia ${day})`);
-
-    // Filtra apenas produtos com fase válida (não draft/archived)
-    const activeProducts = products.filter(p => 
-        p.currentPhase === 'public' || p.currentPhase === 'preorder'
-    );
-
-    if (activeProducts.length === 0) {
-        console.warn('⚠️ Nenhum produto ativo (public/preorder) encontrado!');
-        return { slot1: null, slot2: null, slot3: null };
-    }
-
-    // Ordena por data de referência
-    activeProducts.sort((a, b) => {
-        return new Date(a.dataReferencia) - new Date(b.dataReferencia);
-    });
-
-    console.log('📦 Produtos ativos ordenados:', activeProducts.map(p => 
-        `${p.title} (${p.dataReferencia}) - ${p.currentPhase}`
-    ));
-
-    // 🎯 LÓGICA PRINCIPAL:
-    // - Dias 1-7: Slot1 = produto PUBLIC do mês atual
-    // - Dias 8-31: Slot1 = produto PREORDER (próximo mês)
-    // - Slot2 e Slot3 = próximos na fila
-
-    let slot1, slot2, slot3;
-
-    if (day >= 1 && day <= 7) {
-        // VENDA PÚBLICA: Pega produto com fase 'public'
-        slot1 = activeProducts.find(p => p.currentPhase === 'public') || activeProducts[0];
-        
-        // Próximos: Pega os próximos após o slot1
-        const remainingProducts = activeProducts.filter(p => p !== slot1);
-        slot2 = remainingProducts[0] || null;
-        slot3 = remainingProducts[1] || null;
-
-    } else {
-        // PRÉ-VENDA (dia 8+): Pega produto com fase 'preorder'
-        slot1 = activeProducts.find(p => p.currentPhase === 'preorder') || activeProducts[0];
-        
-        // Próximos: Pega os próximos após o slot1
-        const remainingProducts = activeProducts.filter(p => p !== slot1);
-        slot2 = remainingProducts[0] || null;
-        slot3 = remainingProducts[1] || null;
-    }
-
-    console.log(`🎯 Slots determinados:`);
-    console.log(`   Slot 1 (Atual): ${slot1?.title || 'Nenhum'} - ${slot1?.dataReferencia || 'N/A'} [${slot1?.currentPhase || 'N/A'}]`);
-    console.log(`   Slot 2 (Próximo): ${slot2?.title || 'Nenhum'} - ${slot2?.dataReferencia || 'N/A'} [${slot2?.currentPhase || 'N/A'}]`);
-    console.log(`   Slot 3 (Seguinte): ${slot3?.title || 'Nenhum'} - ${slot3?.dataReferencia || 'N/A'} [${slot3?.currentPhase || 'N/A'}]`);
-
-    return { slot1, slot2, slot3 };
-};
-
-// Atualiza os 3 metafields da loja
-const updateProductSlots = async (slot1, slot2, slot3) => {
-    try {
-        console.log('🔄 Atualizando metafields da loja...');
-
-        const metafields = await shopifyRequest('metafields.json?metafield[owner_resource]=shop');
-        
-        const slots = [
-            { key: 'current_month_product', product: slot1, label: 'Produto Atual' },
-            { key: 'next_month_product', product: slot2, label: 'Próximo Produto' },
-            { key: 'following_month_product', product: slot3, label: 'Produto Seguinte' }
-        ];
-
-        for (const slot of slots) {
-            if (!slot.product) {
-                console.log(`⚠️ ${slot.label}: Nenhum produto disponível`);
-                continue;
-            }
-
-            const existingMeta = metafields.metafields.find(
-                m => m.namespace === 'custom' && m.key === slot.key
-            );
-
-            const gid = `gid://shopify/Product/${slot.product.id}`;
-
-            if (existingMeta) {
-                // 🆕 Valida tipo do metafield
-                if (existingMeta.type !== 'product_reference') {
-                    console.error(`❌ ${slot.label}: Tipo errado (${existingMeta.type}). Delete e recrie como 'product_reference' no admin da Shopify!`);
-                    console.error(`   Settings > Custom Data > Shops > Delete "${slot.key}" e recrie.`);
-                    continue;
-                }
-
-                // Atualiza apenas se mudou
-                if (existingMeta.value !== gid) {
-                    await shopifyRequest(
-                        `metafields/${existingMeta.id}.json`,
-                        'PUT',
-                        {
-                            metafield: {
-                                value: gid,
-                                type: 'product_reference'
-                            }
-                        }
-                    );
-                    console.log(`✅ ${slot.label} atualizado: ${slot.product.title} [${slot.product.currentPhase}]`);
-                } else {
-                    console.log(`ℹ️ ${slot.label} já está correto: ${slot.product.title} [${slot.product.currentPhase}]`);
-                }
-            } else {
-                // Cria metafield (não deveria acontecer se criou no admin)
-                console.log(`🆕 Criando ${slot.label}...`);
-                await shopifyRequest(
-                    'metafields.json',
-                    'POST',
-                    {
-                        metafield: {
-                            namespace: 'custom',
-                            key: slot.key,
-                            value: gid,
-                            type: 'product_reference',
-                            owner_resource: 'shop'
-                        }
-                    }
-                );
-                console.log(`✅ ${slot.label} criado: ${slot.product.title} [${slot.product.currentPhase}]`);
-            }
-        }
-
-    } catch (error) {
-        console.error('❌ Erro ao atualizar slots de produtos:', error.message);
-        if (error.response) {
-            console.error('Detalhes:', error.response.data);
-        }
-    }
-};
-
-// NOVA FUNÇÃO - Alerta de produtos faltando
-const checkUpcomingProducts = (sortedMonths, currentDate) => {
-    const threeMonthsAhead = new Date(currentDate);
-    threeMonthsAhead.setMonth(threeMonthsAhead.getMonth() + 3);
-    
-    const targetMonth = `${threeMonthsAhead.getFullYear()}-${(threeMonthsAhead.getMonth() + 1).toString().padStart(2, '0')}`;
-    
-    if (!sortedMonths.includes(targetMonth)) {
-        console.warn(`⚠️ ALERTA: Cadastre o produto de ${targetMonth} em breve!`);
-    }
-};
+// FUNÇÃO PRINCIPAL - Processa todos os produtos
 const processProductCycles = async () => {
     try {
         console.log('🔄 Iniciando processamento de ciclos de produtos...');
@@ -344,8 +175,7 @@ const processProductCycles = async () => {
         const settings = await getThemeSettings();
         console.log('⚙️ Configurações:', settings);
 
-        const now = getTestDate();
-
+        // Busca todos os produtos
         let allProducts = [];
         let hasNextPage = true;
         let pageInfo = null;
@@ -364,9 +194,9 @@ const processProductCycles = async () => {
         console.log(`📦 Total de produtos encontrados: ${allProducts.length}`);
 
         let updatedCount = 0;
-        const productsWithDate = [];
 
         for (const product of allProducts) {
+            // Busca metafield data_referencia
             const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
             
             const dataRefMeta = metafields.metafields.find(
@@ -381,27 +211,27 @@ const processProductCycles = async () => {
             const dataReferencia = dataRefMeta.value;
             const currentPhase = determineProductPhase(dataReferencia, settings);
 
-            productsWithDate.push({
-                ...product,
-                dataReferencia,
-                currentPhase
-            });
-
+            // Busca metafield de fase atual
             const phaseMeta = metafields.metafields.find(
                 m => m.namespace === 'custom' && m.key === 'sale_phase'
             );
 
+            // 🔧 FIX: Trata valores vazios, null e undefined
             const storedPhase = phaseMeta?.value?.trim() || null;
 
+            // Log para debug
             if (process.env.TEST_MODE === 'true') {
                 console.log(`🔍 Produto ${product.id}: storedPhase="${storedPhase}" → currentPhase="${currentPhase}"`);
             }
 
+            // Atualiza se mudou OU se estiver vazio/null
             if (currentPhase !== storedPhase) {
                 console.log(`🔄 Produto ${product.id} (${product.title}): "${storedPhase}" → "${currentPhase}"`);
 
+                // Atualiza status na Shopify
                 await updateProductStatus(product.id, currentPhase, product.tags.split(', ').filter(t => t));
 
+                // Atualiza ou cria metafield de fase
                 const metaPayload = {
                     metafield: {
                         namespace: 'custom',
@@ -412,6 +242,7 @@ const processProductCycles = async () => {
                 };
 
                 if (phaseMeta && phaseMeta.id) {
+                    // Atualiza metafield existente
                     await shopifyRequest(
                         `products/${product.id}/metafields/${phaseMeta.id}.json`, 
                         'PUT', 
@@ -419,6 +250,7 @@ const processProductCycles = async () => {
                     );
                     console.log(`✏️ Metafield sale_phase atualizado: "${currentPhase}"`);
                 } else {
+                    // Cria metafield se não existir
                     await shopifyRequest(
                         `products/${product.id}/metafields.json`, 
                         'POST', 
@@ -435,30 +267,293 @@ const processProductCycles = async () => {
             }
         }
 
-        // Determina e atualiza os 3 slots BASEADO NA FASE
-        const { slot1, slot2, slot3 } = determineProductSlots(productsWithDate, now);
-        
-        // Atualiza metafields da loja
-        await updateProductSlots(slot1, slot2, slot3);
+        // 🆕 Atualiza referências de produtos da loja APÓS processar todos
+        await updateStoreProductReferences(allProducts);
 
         console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
-        console.log(`📅 Slots atuais:`);
-        console.log(`   Slot 1 (Atual): ${slot1?.title || 'Nenhum'} [${slot1?.currentPhase || 'N/A'}]`);
-        console.log(`   Slot 2 (Próximo): ${slot2?.title || 'Nenhum'} [${slot2?.currentPhase || 'N/A'}]`);
-        console.log(`   Slot 3 (Seguinte): ${slot3?.title || 'Nenhum'} [${slot3?.currentPhase || 'N/A'}]`);
 
         return {
             success: true,
             processed: allProducts.length,
-            updated: updatedCount,
-            slots: {
-                current: slot1?.title || 'Nenhum',
-                currentPhase: slot1?.currentPhase || 'N/A',
-                next: slot2?.title || 'Nenhum',
-                nextPhase: slot2?.currentPhase || 'N/A',
-                following: slot3?.title || 'Nenhum',
-                followingPhase: slot3?.currentPhase || 'N/A'
+            updated: updatedCount
+        };
+
+    } catch (error) {
+        console.error('❌ Erro ao processar ciclos:', error.message);
+        throw error;
+    }
+};
+// ...existing code...
+
+// 🆕 Atualiza metafields da loja (active, next, following)
+const updateStoreProductReferences = async (allProducts) => {
+    try {
+        console.log('🏪 Atualizando referências de produtos da loja...');
+
+        const now = getTestDate();
+        const currentMonth = now.getMonth(); // 0-11
+        const currentYear = now.getFullYear();
+        const currentDay = now.getDate();
+
+        const settings = await getThemeSettings();
+
+        // Filtra produtos com data_referencia válida
+        const productsWithDate = [];
+        
+        for (const product of allProducts) {
+            const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
+            
+            const dataRefMeta = metafields.metafields.find(
+                m => m.namespace === 'custom' && m.key === 'data_referencia'
+            );
+
+            if (dataRefMeta?.value) {
+                const [year, month, day] = dataRefMeta.value.split('-').map(Number);
+                productsWithDate.push({
+                    id: product.id,
+                    title: product.title,
+                    handle: product.handle,
+                    dataReferencia: dataRefMeta.value,
+                    year,
+                    month: month - 1, // Converte para 0-11
+                    day
+                });
             }
+        }
+
+        // Ordena por data
+        productsWithDate.sort((a, b) => {
+            if (a.year !== b.year) return a.year - b.year;
+            if (a.month !== b.month) return a.month - b.month;
+            return a.day - b.day;
+        });
+
+        console.log(`📦 ${productsWithDate.length} produtos com data_referencia encontrados`);
+
+        // 1️⃣ ACTIVE PRODUCT: produto em PUBLIC (dias 1-7) OU PREORDER (dia 8+)
+        let activeProduct = null;
+        
+        // CASO 1: Venda Pública (dias 1-7 do mês atual)
+        if (currentDay >= settings.public_start_day && currentDay <= settings.public_end_day) {
+            activeProduct = productsWithDate.find(p => 
+                p.year === currentYear && 
+                p.month === currentMonth
+            );
+            if (activeProduct) {
+                console.log(`✅ Active Product (PUBLIC): ${activeProduct.title} (${activeProduct.dataReferencia})`);
+            }
+        }
+        
+        // CASO 2: Pré-venda (dia 8+ do mês atual = produto do próximo mês)
+        if (!activeProduct && currentDay >= settings.preorder_start_day) {
+            const nextMonth = (currentMonth + 1) % 12;
+            const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
+            
+            activeProduct = productsWithDate.find(p => 
+                p.year === nextYear && 
+                p.month === nextMonth
+            );
+            
+            if (activeProduct) {
+                console.log(`✅ Active Product (PREORDER): ${activeProduct.title} (${activeProduct.dataReferencia})`);
+            }
+        }
+
+        if (!activeProduct) {
+            console.log('⚠️ Nenhum produto ativo encontrado');
+            return;
+        }
+
+        // 2️⃣ NEXT PRODUCT: produto que será PRE-ORDER no próximo ciclo
+        // (mês seguinte ao active_product)
+        const activeMonth = activeProduct.month;
+        const activeYear = activeProduct.year;
+        const nextMonth = (activeMonth + 1) % 12;
+        const nextYear = activeMonth === 11 ? activeYear + 1 : activeYear;
+
+        const nextProduct = productsWithDate.find(p => 
+            p.year === nextYear && 
+            p.month === nextMonth
+        );
+
+        if (nextProduct) {
+            console.log(`✅ Next Product: ${nextProduct.title} (${nextProduct.dataReferencia})`);
+        } else {
+            console.log('⚠️ Nenhum produto "next" encontrado');
+        }
+
+        // 3️⃣ FOLLOWING PRODUCT: produto que será PRE-ORDER após o next
+        // (mês seguinte ao next_product)
+        let followingProduct = null;
+        if (nextProduct) {
+            const followingMonth = (nextProduct.month + 1) % 12;
+            const followingYear = nextProduct.month === 11 ? nextProduct.year + 1 : nextProduct.year;
+
+            followingProduct = productsWithDate.find(p => 
+                p.year === followingYear && 
+                p.month === followingMonth
+            );
+
+            if (followingProduct) {
+                console.log(`✅ Following Product: ${followingProduct.title} (${followingProduct.dataReferencia})`);
+            } else {
+                console.log('⚠️ Nenhum produto "following" encontrado');
+            }
+        }
+
+        // 🔧 Atualiza metafields da loja
+        const storeMetafields = [
+            { key: 'active_product', productId: activeProduct.id },
+            { key: 'next_product', productId: nextProduct?.id },
+            { key: 'following_product', productId: followingProduct?.id }
+        ];
+
+        for (const { key, productId } of storeMetafields) {
+            if (!productId) continue;
+
+            // Busca metafield existente na loja
+            const existingMeta = await shopifyRequest('metafields.json')
+                .then(data => data.metafields.find(
+                    m => m.namespace === 'custom' && m.key === key
+                ))
+                .catch(() => null);
+
+            const metaPayload = {
+                metafield: {
+                    namespace: 'custom',
+                    key,
+                    value: `gid://shopify/Product/${productId}`,
+                    type: 'product_reference'
+                }
+            };
+
+            if (existingMeta?.id) {
+                // Atualiza metafield existente
+                await shopifyRequest(`metafields/${existingMeta.id}.json`, 'PUT', metaPayload);
+                console.log(`✏️ Metafield "${key}" atualizado na loja`);
+            } else {
+                // Cria novo metafield
+                await shopifyRequest('metafields.json', 'POST', metaPayload);
+                console.log(`✨ Metafield "${key}" criado na loja`);
+            }
+        }
+
+        console.log('✅ Referências de produtos da loja atualizadas!');
+
+    } catch (error) {
+        console.error('❌ Erro ao atualizar referências da loja:', error.message);
+    }
+};
+
+// FUNÇÃO PRINCIPAL - Processa todos os produtos
+const processProductCycles = async () => {
+    try {
+        console.log('🔄 Iniciando processamento de ciclos de produtos...');
+
+        const settings = await getThemeSettings();
+        console.log('⚙️ Configurações:', settings);
+
+        // Busca todos os produtos
+        let allProducts = [];
+        let hasNextPage = true;
+        let pageInfo = null;
+
+        while (hasNextPage) {
+            const endpoint = pageInfo 
+                ? `products.json?limit=250&page_info=${pageInfo}`
+                : 'products.json?limit=250';
+
+            const data = await shopifyRequest(endpoint);
+            allProducts = allProducts.concat(data.products);
+
+            hasNextPage = false;
+        }
+
+        console.log(`📦 Total de produtos encontrados: ${allProducts.length}`);
+
+        let updatedCount = 0;
+
+        for (const product of allProducts) {
+            // Busca metafield data_referencia
+            const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
+            
+            const dataRefMeta = metafields.metafields.find(
+                m => m.namespace === 'custom' && m.key === 'data_referencia'
+            );
+
+            if (!dataRefMeta || !dataRefMeta.value) {
+                console.log(`⚠️ Produto ${product.id} sem data_referencia, pulando...`);
+                continue;
+            }
+
+            const dataReferencia = dataRefMeta.value;
+            const currentPhase = determineProductPhase(dataReferencia, settings);
+
+            // Busca metafield de fase atual
+            const phaseMeta = metafields.metafields.find(
+                m => m.namespace === 'custom' && m.key === 'sale_phase'
+            );
+
+            // 🔧 FIX: Trata valores vazios, null e undefined
+            const storedPhase = phaseMeta?.value?.trim() || null;
+
+            // Log para debug
+            if (process.env.TEST_MODE === 'true') {
+                console.log(`🔍 Produto ${product.id}: storedPhase="${storedPhase}" → currentPhase="${currentPhase}"`);
+            }
+
+            // Atualiza se mudou OU se estiver vazio/null
+            if (currentPhase !== storedPhase) {
+                console.log(`🔄 Produto ${product.id} (${product.title}): "${storedPhase}" → "${currentPhase}"`);
+
+                // Atualiza status na Shopify
+                await updateProductStatus(product.id, currentPhase, product.tags.split(', ').filter(t => t));
+
+                // Atualiza ou cria metafield de fase
+                const metaPayload = {
+                    metafield: {
+                        namespace: 'custom',
+                        key: 'sale_phase',
+                        value: currentPhase,
+                        type: 'single_line_text_field'
+                    }
+                };
+
+                if (phaseMeta && phaseMeta.id) {
+                    // Atualiza metafield existente
+                    await shopifyRequest(
+                        `products/${product.id}/metafields/${phaseMeta.id}.json`, 
+                        'PUT', 
+                        metaPayload
+                    );
+                    console.log(`✏️ Metafield sale_phase atualizado: "${currentPhase}"`);
+                } else {
+                    // Cria metafield se não existir
+                    await shopifyRequest(
+                        `products/${product.id}/metafields.json`, 
+                        'POST', 
+                        metaPayload
+                    );
+                    console.log(`✨ Metafield sale_phase criado: "${currentPhase}"`);
+                }
+
+                updatedCount++;
+            } else {
+                if (process.env.TEST_MODE === 'true') {
+                    console.log(`⏭️ Produto ${product.id} já está na fase correta: "${currentPhase}"`);
+                }
+            }
+        }
+
+        // 🆕 Atualiza referências de produtos da loja APÓS processar todos
+        await updateStoreProductReferences(allProducts);
+
+        console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
+
+        return {
+            success: true,
+            processed: allProducts.length,
+            updated: updatedCount
         };
 
     } catch (error) {
@@ -470,8 +565,5 @@ const processProductCycles = async () => {
 module.exports = { 
     processProductCycles,
     determineProductPhase,
-    getThemeSettings,
-    updateProductSlots,
-    determineProductSlots,
-    organizeProductsByMonth
+    getThemeSettings
 };
