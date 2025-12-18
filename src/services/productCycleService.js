@@ -166,157 +166,6 @@ const updateProductStatus = async (productId, phase, tags) => {
 
     console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
 };
-// 🆕 Atualiza metafields da loja (active, next, following)
-const updateStoreProductReferences = async (allProducts) => {
-    try {
-        console.log('🏪 Atualizando referências de produtos da loja...');
-
-        const now = getTestDate();
-        const currentMonth = now.getMonth(); // 0-11
-        const currentYear = now.getFullYear();
-
-        // Filtra produtos com data_referencia válida
-        const productsWithDate = [];
-        
-        for (const product of allProducts) {
-            const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
-            
-            const dataRefMeta = metafields.metafields.find(
-                m => m.namespace === 'custom' && m.key === 'data_referencia'
-            );
-
-            if (dataRefMeta?.value) {
-                const [year, month, day] = dataRefMeta.value.split('-').map(Number);
-                productsWithDate.push({
-                    id: product.id,
-                    title: product.title,
-                    handle: product.handle,
-                    dataReferencia: dataRefMeta.value,
-                    year,
-                    month: month - 1, // Converte para 0-11
-                    day
-                });
-            }
-        }
-
-        // Ordena por data
-        productsWithDate.sort((a, b) => {
-            if (a.year !== b.year) return a.year - b.year;
-            if (a.month !== b.month) return a.month - b.month;
-            return a.day - b.day;
-        });
-
-        console.log(`📦 ${productsWithDate.length} produtos com data_referencia encontrados`);
-
-        // 1️⃣ ACTIVE PRODUCT: produto em PUBLIC (dias 1-7) ou PREORDER (dia 8+)
-        let activeProduct = null;
-        
-        // Primeiro procura produto em PUBLIC (dias 1-7 do mês atual)
-        activeProduct = productsWithDate.find(p => 
-            p.year === currentYear && 
-            p.month === currentMonth &&
-            now.getDate() >= 1 && 
-            now.getDate() <= 7
-        );
-
-        // Se não achou em PUBLIC, procura em PREORDER (dia 8+ do mês atual, produto do próximo mês)
-        if (!activeProduct && now.getDate() >= 8) {
-            const nextMonth = (currentMonth + 1) % 12;
-            const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
-            
-            activeProduct = productsWithDate.find(p => 
-                p.year === nextYear && 
-                p.month === nextMonth
-            );
-        }
-
-        if (!activeProduct) {
-            console.log('⚠️ Nenhum produto ativo encontrado');
-            return;
-        }
-
-        console.log(`✅ Active Product: ${activeProduct.title} (${activeProduct.dataReferencia})`);
-
-        // 2️⃣ NEXT PRODUCT: produto do mês seguinte ao active
-        const activeMonth = activeProduct.month;
-        const activeYear = activeProduct.year;
-        const nextMonth = (activeMonth + 1) % 12;
-        const nextYear = activeMonth === 11 ? activeYear + 1 : activeYear;
-
-        const nextProduct = productsWithDate.find(p => 
-            p.year === nextYear && 
-            p.month === nextMonth
-        );
-
-        if (nextProduct) {
-            console.log(`✅ Next Product: ${nextProduct.title} (${nextProduct.dataReferencia})`);
-        } else {
-            console.log('⚠️ Nenhum produto "next" encontrado');
-        }
-
-        // 3️⃣ FOLLOWING PRODUCT: produto do mês seguinte ao next
-        let followingProduct = null;
-        if (nextProduct) {
-            const followingMonth = (nextProduct.month + 1) % 12;
-            const followingYear = nextProduct.month === 11 ? nextProduct.year + 1 : nextProduct.year;
-
-            followingProduct = productsWithDate.find(p => 
-                p.year === followingYear && 
-                p.month === followingMonth
-            );
-
-            if (followingProduct) {
-                console.log(`✅ Following Product: ${followingProduct.title} (${followingProduct.dataReferencia})`);
-            } else {
-                console.log('⚠️ Nenhum produto "following" encontrado');
-            }
-        }
-
-        // 🔧 Atualiza metafields da loja
-        const storeMetafields = [
-            { key: 'active_product', productId: activeProduct.id },
-            { key: 'next_product', productId: nextProduct?.id },
-            { key: 'following_product', productId: followingProduct?.id }
-        ];
-
-        for (const { key, productId } of storeMetafields) {
-            if (!productId) continue;
-
-            // Busca metafield existente na loja
-            const existingMeta = await shopifyRequest('metafields.json')
-                .then(data => data.metafields.find(
-                    m => m.namespace === 'custom' && m.key === key
-                ))
-                .catch(() => null);
-
-            const metaPayload = {
-                metafield: {
-                    namespace: 'custom',
-                    key,
-                    value: `gid://shopify/Product/${productId}`,
-                    type: 'product_reference'
-                }
-            };
-
-            if (existingMeta?.id) {
-                // Atualiza metafield existente
-                await shopifyRequest(`metafields/${existingMeta.id}.json`, 'PUT', metaPayload);
-                console.log(`✏️ Metafield "${key}" atualizado na loja`);
-            } else {
-                // Cria novo metafield
-                await shopifyRequest('metafields.json', 'POST', metaPayload);
-                console.log(`✨ Metafield "${key}" criado na loja`);
-            }
-        }
-
-        console.log('✅ Referências de produtos da loja atualizadas!');
-
-    } catch (error) {
-        console.error('❌ Erro ao atualizar referências da loja:', error.message);
-    }
-};
-
-// ...existing code...
 
 // FUNÇÃO PRINCIPAL - Processa todos os produtos
 const processProductCycles = async () => {
@@ -418,9 +267,6 @@ const processProductCycles = async () => {
             }
         }
 
-        // 🆕 Atualiza referências de produtos da loja APÓS processar todos
-        await updateStoreProductReferences(allProducts);
-
         console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
 
         return {
@@ -434,7 +280,6 @@ const processProductCycles = async () => {
         throw error;
     }
 };
-
 
 module.exports = { 
     processProductCycles,
