@@ -167,7 +167,165 @@ const updateProductStatus = async (productId, phase, tags) => {
     console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
 };
 
-// FUNÇÃO PRINCIPAL - Processa todos os produtos
+// NOVA FUNÇÃO - Organiza produtos por mês
+const organizeProductsByMonth = (products) => {
+    const productsByMonth = {};
+
+    products.forEach(product => {
+        if (!product.dataReferencia) return;
+
+        const [year, month] = product.dataReferencia.split('-');
+        const monthKey = `${year}-${month}`;
+
+        if (!productsByMonth[monthKey]) {
+            productsByMonth[monthKey] = product;
+        }
+    });
+
+    const sortedMonths = Object.keys(productsByMonth).sort();
+
+    return {
+        productsByMonth,
+        sortedMonths
+    };
+};
+
+// NOVA FUNÇÃO - Determina os 3 slots
+const determineProductSlots = (products, currentDate) => {
+    const day = currentDate.getDate();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+    const currentMonthKey = `${currentYear}-${currentMonth}`;
+
+    const { productsByMonth, sortedMonths } = organizeProductsByMonth(products);
+
+    console.log(`📅 Mês atual: ${currentMonthKey}`);
+    console.log(`📦 Meses disponíveis:`, sortedMonths);
+
+    let startIndex = sortedMonths.indexOf(currentMonthKey);
+
+    // Se não encontrou o mês atual, busca o próximo disponível
+    if (startIndex === -1) {
+        console.warn(`⚠️ Mês ${currentMonthKey} não encontrado. Buscando próximo disponível...`);
+        
+        startIndex = sortedMonths.findIndex(monthKey => monthKey > currentMonthKey);
+        
+        if (startIndex === -1) {
+            console.warn(`⚠️ Nenhum mês futuro encontrado. Usando primeiro disponível.`);
+            startIndex = 0;
+        }
+    }
+
+    // Dia 8+ avança 1 posição
+    if (day >= 8) {
+        startIndex += 1;
+    }
+
+    // Busca circular: se passar do final, volta pro início
+    const getSlot = (index) => {
+        if (index >= sortedMonths.length) {
+            const wrappedIndex = index % sortedMonths.length;
+            console.log(`🔄 Slot ${index} passou do limite. Usando índice circular: ${wrappedIndex}`);
+            return productsByMonth[sortedMonths[wrappedIndex]] || null;
+        }
+        return productsByMonth[sortedMonths[index]] || null;
+    };
+
+    const slot1 = getSlot(startIndex);
+    const slot2 = getSlot(startIndex + 1);
+    const slot3 = getSlot(startIndex + 2);
+
+    console.log(`🎯 Slots determinados:`);
+    console.log(`   Índice inicial: ${startIndex}`);
+    console.log(`   Slot 1 (índice ${startIndex}): ${slot1?.title || 'Nenhum'} - ${slot1?.dataReferencia || 'N/A'}`);
+    console.log(`   Slot 2 (índice ${startIndex + 1}): ${slot2?.title || 'Nenhum'} - ${slot2?.dataReferencia || 'N/A'}`);
+    console.log(`   Slot 3 (índice ${startIndex + 2}): ${slot3?.title || 'Nenhum'} - ${slot3?.dataReferencia || 'N/A'}`);
+
+    return { slot1, slot2, slot3 };
+};
+
+// NOVA FUNÇÃO - Atualiza os 3 metafields da loja
+const updateProductSlots = async (slot1, slot2, slot3) => {
+    try {
+        console.log('🔄 Atualizando metafields da loja...');
+
+        const metafields = await shopifyRequest('metafields.json?metafield[owner_resource]=shop');
+        
+        const slots = [
+            { key: 'current_month_product', product: slot1, label: 'Mês Atual' },
+            { key: 'next_month_product', product: slot2, label: 'Próximo Mês' },
+            { key: 'following_month_product', product: slot3, label: 'Mês Seguinte' }
+        ];
+
+        for (const slot of slots) {
+            if (!slot.product) {
+                console.log(`⚠️ ${slot.label}: Nenhum produto disponível`);
+                continue;
+            }
+
+            const existingMeta = metafields.metafields.find(
+                m => m.namespace === 'custom' && m.key === slot.key
+            );
+
+            const gid = `gid://shopify/Product/${slot.product.id}`;
+
+            if (existingMeta) {
+                // Atualiza apenas se mudou
+                if (existingMeta.value !== gid) {
+                    await shopifyRequest(
+                        `metafields/${existingMeta.id}.json`,
+                        'PUT',
+                        {
+                            metafield: {
+                                value: gid,
+                                type: 'product_reference'
+                            }
+                        }
+                    );
+                    console.log(`✅ ${slot.label} atualizado: ${slot.product.title}`);
+                } else {
+                    console.log(`ℹ️ ${slot.label} já está correto: ${slot.product.title}`);
+                }
+            } else {
+                // Cria metafield
+                await shopifyRequest(
+                    'metafields.json',
+                    'POST',
+                    {
+                        metafield: {
+                            namespace: 'custom',
+                            key: slot.key,
+                            value: gid,
+                            type: 'product_reference',
+                            owner_resource: 'shop'
+                        }
+                    }
+                );
+                console.log(`✅ ${slot.label} criado: ${slot.product.title}`);
+            }
+        }
+
+    } catch (error) {
+        console.error('❌ Erro ao atualizar slots de produtos:', error.message);
+        if (error.response) {
+            console.error('Detalhes:', error.response.data);
+        }
+    }
+};
+
+// NOVA FUNÇÃO - Alerta de produtos faltando
+const checkUpcomingProducts = (sortedMonths, currentDate) => {
+    const threeMonthsAhead = new Date(currentDate);
+    threeMonthsAhead.setMonth(threeMonthsAhead.getMonth() + 3);
+    
+    const targetMonth = `${threeMonthsAhead.getFullYear()}-${(threeMonthsAhead.getMonth() + 1).toString().padStart(2, '0')}`;
+    
+    if (!sortedMonths.includes(targetMonth)) {
+        console.warn(`⚠️ ALERTA: Cadastre o produto de ${targetMonth} em breve!`);
+    }
+};
+
+// MODIFICADA - Função principal
 const processProductCycles = async () => {
     try {
         console.log('🔄 Iniciando processamento de ciclos de produtos...');
@@ -175,7 +333,8 @@ const processProductCycles = async () => {
         const settings = await getThemeSettings();
         console.log('⚙️ Configurações:', settings);
 
-        // Busca todos os produtos
+        const now = getTestDate();
+
         let allProducts = [];
         let hasNextPage = true;
         let pageInfo = null;
@@ -194,9 +353,9 @@ const processProductCycles = async () => {
         console.log(`📦 Total de produtos encontrados: ${allProducts.length}`);
 
         let updatedCount = 0;
+        const productsWithDate = []; // Lista de produtos com data_referencia
 
         for (const product of allProducts) {
-            // Busca metafield data_referencia
             const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
             
             const dataRefMeta = metafields.metafields.find(
@@ -211,27 +370,28 @@ const processProductCycles = async () => {
             const dataReferencia = dataRefMeta.value;
             const currentPhase = determineProductPhase(dataReferencia, settings);
 
-            // Busca metafield de fase atual
+            // Adiciona à lista com data_referencia
+            productsWithDate.push({
+                ...product,
+                dataReferencia,
+                currentPhase
+            });
+
             const phaseMeta = metafields.metafields.find(
                 m => m.namespace === 'custom' && m.key === 'sale_phase'
             );
 
-            // 🔧 FIX: Trata valores vazios, null e undefined
             const storedPhase = phaseMeta?.value?.trim() || null;
 
-            // Log para debug
             if (process.env.TEST_MODE === 'true') {
                 console.log(`🔍 Produto ${product.id}: storedPhase="${storedPhase}" → currentPhase="${currentPhase}"`);
             }
 
-            // Atualiza se mudou OU se estiver vazio/null
             if (currentPhase !== storedPhase) {
                 console.log(`🔄 Produto ${product.id} (${product.title}): "${storedPhase}" → "${currentPhase}"`);
 
-                // Atualiza status na Shopify
                 await updateProductStatus(product.id, currentPhase, product.tags.split(', ').filter(t => t));
 
-                // Atualiza ou cria metafield de fase
                 const metaPayload = {
                     metafield: {
                         namespace: 'custom',
@@ -242,7 +402,6 @@ const processProductCycles = async () => {
                 };
 
                 if (phaseMeta && phaseMeta.id) {
-                    // Atualiza metafield existente
                     await shopifyRequest(
                         `products/${product.id}/metafields/${phaseMeta.id}.json`, 
                         'PUT', 
@@ -250,7 +409,6 @@ const processProductCycles = async () => {
                     );
                     console.log(`✏️ Metafield sale_phase atualizado: "${currentPhase}"`);
                 } else {
-                    // Cria metafield se não existir
                     await shopifyRequest(
                         `products/${product.id}/metafields.json`, 
                         'POST', 
@@ -267,12 +425,31 @@ const processProductCycles = async () => {
             }
         }
 
+        // Determina e atualiza os 3 slots
+        const { slot1, slot2, slot3 } = determineProductSlots(productsWithDate, now);
+        
+        // Alerta de produtos faltando
+        const { sortedMonths } = organizeProductsByMonth(productsWithDate);
+        checkUpcomingProducts(sortedMonths, now);
+        
+        // Atualiza metafields da loja
+        await updateProductSlots(slot1, slot2, slot3);
+
         console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
+        console.log(`📅 Slots atuais:`);
+        console.log(`   Slot 1 (Mês Atual): ${slot1?.title || 'Nenhum'}`);
+        console.log(`   Slot 2 (Próximo): ${slot2?.title || 'Nenhum'}`);
+        console.log(`   Slot 3 (Seguinte): ${slot3?.title || 'Nenhum'}`);
 
         return {
             success: true,
             processed: allProducts.length,
-            updated: updatedCount
+            updated: updatedCount,
+            slots: {
+                current: slot1?.title || 'Nenhum',
+                next: slot2?.title || 'Nenhum',
+                following: slot3?.title || 'Nenhum'
+            }
         };
 
     } catch (error) {
@@ -284,5 +461,8 @@ const processProductCycles = async () => {
 module.exports = { 
     processProductCycles,
     determineProductPhase,
-    getThemeSettings
+    getThemeSettings,
+    updateProductSlots,
+    determineProductSlots,
+    organizeProductsByMonth
 };
