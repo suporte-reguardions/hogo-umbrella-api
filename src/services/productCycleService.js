@@ -166,125 +166,6 @@ const updateProductStatus = async (productId, phase, tags) => {
 
     console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
 };
-
-// FUNÇÃO PRINCIPAL - Processa todos os produtos
-const processProductCycles = async () => {
-    try {
-        console.log('🔄 Iniciando processamento de ciclos de produtos...');
-
-        const settings = await getThemeSettings();
-        console.log('⚙️ Configurações:', settings);
-
-        // Busca todos os produtos
-        let allProducts = [];
-        let hasNextPage = true;
-        let pageInfo = null;
-
-        while (hasNextPage) {
-            const endpoint = pageInfo 
-                ? `products.json?limit=250&page_info=${pageInfo}`
-                : 'products.json?limit=250';
-
-            const data = await shopifyRequest(endpoint);
-            allProducts = allProducts.concat(data.products);
-
-            hasNextPage = false;
-        }
-
-        console.log(`📦 Total de produtos encontrados: ${allProducts.length}`);
-
-        let updatedCount = 0;
-
-        for (const product of allProducts) {
-            // Busca metafield data_referencia
-            const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
-            
-            const dataRefMeta = metafields.metafields.find(
-                m => m.namespace === 'custom' && m.key === 'data_referencia'
-            );
-
-            if (!dataRefMeta || !dataRefMeta.value) {
-                console.log(`⚠️ Produto ${product.id} sem data_referencia, pulando...`);
-                continue;
-            }
-
-            const dataReferencia = dataRefMeta.value;
-            const currentPhase = determineProductPhase(dataReferencia, settings);
-
-            // Busca metafield de fase atual
-            const phaseMeta = metafields.metafields.find(
-                m => m.namespace === 'custom' && m.key === 'sale_phase'
-            );
-
-            // 🔧 FIX: Trata valores vazios, null e undefined
-            const storedPhase = phaseMeta?.value?.trim() || null;
-
-            // Log para debug
-            if (process.env.TEST_MODE === 'true') {
-                console.log(`🔍 Produto ${product.id}: storedPhase="${storedPhase}" → currentPhase="${currentPhase}"`);
-            }
-
-            // Atualiza se mudou OU se estiver vazio/null
-            if (currentPhase !== storedPhase) {
-                console.log(`🔄 Produto ${product.id} (${product.title}): "${storedPhase}" → "${currentPhase}"`);
-
-                // Atualiza status na Shopify
-                await updateProductStatus(product.id, currentPhase, product.tags.split(', ').filter(t => t));
-
-                // Atualiza ou cria metafield de fase
-                const metaPayload = {
-                    metafield: {
-                        namespace: 'custom',
-                        key: 'sale_phase',
-                        value: currentPhase,
-                        type: 'single_line_text_field'
-                    }
-                };
-
-                if (phaseMeta && phaseMeta.id) {
-                    // Atualiza metafield existente
-                    await shopifyRequest(
-                        `products/${product.id}/metafields/${phaseMeta.id}.json`, 
-                        'PUT', 
-                        metaPayload
-                    );
-                    console.log(`✏️ Metafield sale_phase atualizado: "${currentPhase}"`);
-                } else {
-                    // Cria metafield se não existir
-                    await shopifyRequest(
-                        `products/${product.id}/metafields.json`, 
-                        'POST', 
-                        metaPayload
-                    );
-                    console.log(`✨ Metafield sale_phase criado: "${currentPhase}"`);
-                }
-
-                updatedCount++;
-            } else {
-                if (process.env.TEST_MODE === 'true') {
-                    console.log(`⏭️ Produto ${product.id} já está na fase correta: "${currentPhase}"`);
-                }
-            }
-        }
-
-        // 🆕 Atualiza referências de produtos da loja APÓS processar todos
-        await updateStoreProductReferences(allProducts);
-
-        console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
-
-        return {
-            success: true,
-            processed: allProducts.length,
-            updated: updatedCount
-        };
-
-    } catch (error) {
-        console.error('❌ Erro ao processar ciclos:', error.message);
-        throw error;
-    }
-};
-// ...existing code...
-
 // 🆕 Atualiza metafields da loja (active, next, following)
 const updateStoreProductReferences = async (allProducts) => {
     try {
@@ -293,9 +174,6 @@ const updateStoreProductReferences = async (allProducts) => {
         const now = getTestDate();
         const currentMonth = now.getMonth(); // 0-11
         const currentYear = now.getFullYear();
-        const currentDay = now.getDate();
-
-        const settings = await getThemeSettings();
 
         // Filtra produtos com data_referencia válida
         const productsWithDate = [];
@@ -330,22 +208,19 @@ const updateStoreProductReferences = async (allProducts) => {
 
         console.log(`📦 ${productsWithDate.length} produtos com data_referencia encontrados`);
 
-        // 1️⃣ ACTIVE PRODUCT: produto em PUBLIC (dias 1-7) OU PREORDER (dia 8+)
+        // 1️⃣ ACTIVE PRODUCT: produto em PUBLIC (dias 1-7) ou PREORDER (dia 8+)
         let activeProduct = null;
         
-        // CASO 1: Venda Pública (dias 1-7 do mês atual)
-        if (currentDay >= settings.public_start_day && currentDay <= settings.public_end_day) {
-            activeProduct = productsWithDate.find(p => 
-                p.year === currentYear && 
-                p.month === currentMonth
-            );
-            if (activeProduct) {
-                console.log(`✅ Active Product (PUBLIC): ${activeProduct.title} (${activeProduct.dataReferencia})`);
-            }
-        }
-        
-        // CASO 2: Pré-venda (dia 8+ do mês atual = produto do próximo mês)
-        if (!activeProduct && currentDay >= settings.preorder_start_day) {
+        // Primeiro procura produto em PUBLIC (dias 1-7 do mês atual)
+        activeProduct = productsWithDate.find(p => 
+            p.year === currentYear && 
+            p.month === currentMonth &&
+            now.getDate() >= 1 && 
+            now.getDate() <= 7
+        );
+
+        // Se não achou em PUBLIC, procura em PREORDER (dia 8+ do mês atual, produto do próximo mês)
+        if (!activeProduct && now.getDate() >= 8) {
             const nextMonth = (currentMonth + 1) % 12;
             const nextYear = currentMonth === 11 ? currentYear + 1 : currentYear;
             
@@ -353,10 +228,6 @@ const updateStoreProductReferences = async (allProducts) => {
                 p.year === nextYear && 
                 p.month === nextMonth
             );
-            
-            if (activeProduct) {
-                console.log(`✅ Active Product (PREORDER): ${activeProduct.title} (${activeProduct.dataReferencia})`);
-            }
         }
 
         if (!activeProduct) {
@@ -364,8 +235,9 @@ const updateStoreProductReferences = async (allProducts) => {
             return;
         }
 
-        // 2️⃣ NEXT PRODUCT: produto que será PRE-ORDER no próximo ciclo
-        // (mês seguinte ao active_product)
+        console.log(`✅ Active Product: ${activeProduct.title} (${activeProduct.dataReferencia})`);
+
+        // 2️⃣ NEXT PRODUCT: produto do mês seguinte ao active
         const activeMonth = activeProduct.month;
         const activeYear = activeProduct.year;
         const nextMonth = (activeMonth + 1) % 12;
@@ -382,8 +254,7 @@ const updateStoreProductReferences = async (allProducts) => {
             console.log('⚠️ Nenhum produto "next" encontrado');
         }
 
-        // 3️⃣ FOLLOWING PRODUCT: produto que será PRE-ORDER após o next
-        // (mês seguinte ao next_product)
+        // 3️⃣ FOLLOWING PRODUCT: produto do mês seguinte ao next
         let followingProduct = null;
         if (nextProduct) {
             const followingMonth = (nextProduct.month + 1) % 12;
@@ -445,6 +316,8 @@ const updateStoreProductReferences = async (allProducts) => {
     }
 };
 
+// ...existing code...
+
 // FUNÇÃO PRINCIPAL - Processa todos os produtos
 const processProductCycles = async () => {
     try {
@@ -561,6 +434,7 @@ const processProductCycles = async () => {
         throw error;
     }
 };
+
 
 module.exports = { 
     processProductCycles,
