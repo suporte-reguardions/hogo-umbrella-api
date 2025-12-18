@@ -3,6 +3,15 @@ const axios = require('axios');
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
+// ✅ ADICIONE ESTAS LINHAS PARA DEBUG
+console.log('🔍 DEBUG - Variáveis de Ambiente:');
+console.log('SHOPIFY_STORE:', SHOPIFY_STORE || '❌ UNDEFINED');
+console.log('SHOPIFY_ACCESS_TOKEN:', SHOPIFY_ACCESS_TOKEN ? '✅ Configurado' : '❌ UNDEFINED');
+
+if (!SHOPIFY_STORE || !SHOPIFY_ACCESS_TOKEN) {
+    throw new Error('⚠️ Variáveis SHOPIFY_STORE_URL e SHOPIFY_ACCESS_TOKEN são obrigatórias');
+}
+
 const getTestDate = () => {
     let date;
     
