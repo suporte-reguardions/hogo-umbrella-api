@@ -140,14 +140,35 @@ const determineProductPhase = (dataReferencia, settings) => {
 };
 
 // Atualiza status do produto na Shopify
-const updateProductStatus = async (productId, phase, tags) => {
-    const statusMap = {
-        'draft': 'draft',
-        'preorder': 'active',
-        'public': 'active',
-        'archived': 'draft'
-    };
+// const updateProductStatus = async (productId, phase, tags) => {
+//     const statusMap = {
+//         'draft': 'draft',
+//         'preorder': 'active',
+//         'public': 'active',
+//         'archived': 'draft'
+//     };
 
+//     const updatedTags = tags.filter(t => !['PRE-ORDER', 'PUBLIC-SALE', 'ARCHIVED'].includes(t));
+    
+//     if (phase === 'preorder') updatedTags.push('PRE-ORDER');
+//     if (phase === 'public') updatedTags.push('PUBLIC-SALE');
+//     if (phase === 'archived') updatedTags.push('ARCHIVED');
+
+//     const payload = {
+//         product: {
+//             id: productId,
+//             status: statusMap[phase],
+//             tags: updatedTags.join(', ')
+//         }
+//     };
+
+//     await shopifyRequest(`products/${productId}.json`, 'PUT', payload);
+
+//     console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
+// };
+
+const updateProductStatus = async (productId, phase, tags) => {
+    // TODOS ficam ACTIVE (nunca draft)
     const updatedTags = tags.filter(t => !['PRE-ORDER', 'PUBLIC-SALE', 'ARCHIVED'].includes(t));
     
     if (phase === 'preorder') updatedTags.push('PRE-ORDER');
@@ -157,14 +178,63 @@ const updateProductStatus = async (productId, phase, tags) => {
     const payload = {
         product: {
             id: productId,
-            status: statusMap[phase],
+            status: 'active', // ✅ SEMPRE ATIVO
             tags: updatedTags.join(', ')
         }
     };
 
+    // Para produtos DRAFT (futuro) e ARCHIVED (passado): torna não listado
+    if (phase === 'draft' || phase === 'archived') {
+        payload.product.published_at = null; // Remove da vitrine
+        payload.product.published_scope = 'web';
+    } else {
+        // Para PRE-ORDER e PUBLIC: garante que está listado
+        payload.product.published_scope = 'web';
+        if (!payload.product.published_at) {
+            payload.product.published_at = new Date().toISOString();
+        }
+    }
+
     await shopifyRequest(`products/${productId}.json`, 'PUT', payload);
 
-    console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
+    // 🔧 Zera estoque APENAS para ARCHIVED (produtos que já passaram)
+    if (phase === 'archived') {
+        await zeroProductInventory(productId);
+    }
+
+    console.log(`✅ Produto ${productId} → ${phase} | Listado: ${phase === 'preorder' || phase === 'public'} | Estoque zerado: ${phase === 'archived'}`);
+};
+
+// Função para zerar estoque
+const zeroProductInventory = async (productId) => {
+    try {
+        const productData = await shopifyRequest(`products/${productId}.json`);
+        const variants = productData.product.variants;
+
+        const locationsData = await shopifyRequest('locations.json');
+        const location = locationsData.locations[0];
+
+        if (!location) {
+            console.warn(`⚠️ Nenhum location encontrado`);
+            return;
+        }
+
+        for (const variant of variants) {
+            const inventoryItemId = variant.inventory_item_id;
+            if (!inventoryItemId) continue;
+
+            await shopifyRequest('inventory_levels/set.json', 'POST', {
+                location_id: location.id,
+                inventory_item_id: inventoryItemId,
+                available: 0
+            });
+
+            console.log(`📦 Estoque zerado: Variante ${variant.id}`);
+        }
+
+    } catch (error) {
+        console.error(`❌ Erro ao zerar estoque ${productId}:`, error.message);
+    }
 };
 
 // FUNÇÃO PRINCIPAL - Processa todos os produtos
