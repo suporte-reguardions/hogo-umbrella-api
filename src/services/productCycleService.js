@@ -34,7 +34,7 @@ const getTestDate = () => {
 
 // Helper para fazer requisições à Shopify
 const shopifyRequest = async (endpoint, method = 'GET', data = null) => {
-    const url = `https://${SHOPIFY_STORE}/admin/api/2024-01/${endpoint}`;
+    const url = `https://${SHOPIFY_STORE}/admin/api/2025-10/${endpoint}`;
     
     const config = {
         method,
@@ -86,12 +86,12 @@ const determineProductPhase = (dataReferencia, settings) => {
         console.log(`📊 Diferença de meses: ${monthDiff}`);
     }
 
-    // PRODUTO DE 2+ MESES NO FUTURO = DRAFT
+    // PRODUTO DE 2+ MESES NO FUTURO = UPCOMING
     if (monthDiff > 1) {
         if (process.env.TEST_MODE === 'true') {
-            console.log(`➡️ DRAFT (${monthDiff} meses no futuro)`);
+            console.log(`➡️ UPCOMING (${monthDiff} meses no futuro)`);
         }
-        return 'draft';
+        return 'upcoming';
     }
 
     // PRODUTO DO PRÓXIMO MÊS = PRÉ-VENDA (a partir do dia configurado)
@@ -103,9 +103,9 @@ const determineProductPhase = (dataReferencia, settings) => {
             return 'preorder';
         }
         if (process.env.TEST_MODE === 'true') {
-            console.log(`➡️ DRAFT (próximo mês, mas antes do dia ${settings.preorder_start_day})`);
+            console.log(`➡️ UPCOMING (próximo mês, mas antes do dia ${settings.preorder_start_day})`);
         }
-        return 'draft';
+        return 'upcoming';
     }
 
     // PRODUTO DO MÊS ATUAL
@@ -124,8 +124,8 @@ const determineProductPhase = (dataReferencia, settings) => {
             }
             return 'archived';
         }
-        // Antes do dia 1 (caso improvável) = draft
-        return 'draft';
+        // Antes do dia 1 (caso improvável) = upcoming
+        return 'upcoming';
     }
 
     // PRODUTO DE MESES PASSADOS = ARCHIVED
@@ -136,20 +136,21 @@ const determineProductPhase = (dataReferencia, settings) => {
         return 'archived';
     }
 
-    return 'draft';
+    return 'upcoming';
 };
 
 // Atualiza status do produto na Shopify
 const updateProductStatus = async (productId, phase, tags) => {
     const statusMap = {
-        'draft': 'draft',
+        'upcoming': 'unlisted',
         'preorder': 'active',
         'public': 'active',
-        'archived': 'draft'
+        'archived': 'unlisted'
     };
 
-    const updatedTags = tags.filter(t => !['PRE-ORDER', 'PUBLIC-SALE', 'ARCHIVED'].includes(t));
+    const updatedTags = tags.filter(t => !['UPCOMING', 'PRE-ORDER', 'PUBLIC-SALE', 'ARCHIVED'].includes(t));
     
+    if (phase === 'upcoming') updatedTags.push('UPCOMING');
     if (phase === 'preorder') updatedTags.push('PRE-ORDER');
     if (phase === 'public') updatedTags.push('PUBLIC-SALE');
     if (phase === 'archived') updatedTags.push('ARCHIVED');
