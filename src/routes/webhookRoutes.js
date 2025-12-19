@@ -4,10 +4,11 @@ const crypto = require('crypto');
 const axios = require('axios');
 const db = require('../config/db');
 
+// 🔧 ADICIONE estas constantes no topo
 const SHOPIFY_STORE = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
-// Helper para fazer requisições à Shopify
+// 🔧 ADICIONE esta função helper (copiada do productCycleService)
 const shopifyRequest = async (endpoint, method = 'GET') => {
     const url = `https://${SHOPIFY_STORE}/admin/api/2025-10/${endpoint}`;
     
@@ -24,7 +25,7 @@ const shopifyRequest = async (endpoint, method = 'GET') => {
     return response.data;
 };
 
-// Verifica se algum produto do pedido está em preorder
+// 🔧 ADICIONE esta função NOVA para verificar preorder
 const hasPreorderProduct = async (lineItems) => {
     for (const item of lineItems) {
         if (!item.product_id) continue;
@@ -62,7 +63,7 @@ const hasPreorderProduct = async (lineItems) => {
     return false;
 };
 
-// Middleware de verificação Shopify
+// Middleware de verificação Shopify (MANTÉM IGUAL)
 const verifyShopifyWebhook = (req, res, next) => {
     const hmac = req.headers['x-shopify-hmac-sha256'];
     const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
@@ -86,7 +87,7 @@ const verifyShopifyWebhook = (req, res, next) => {
     }
 };
 
-// Rota que marca UM cupom ALEATÓRIO como usado (APENAS se tiver produto em preorder)
+// 🔧 SUBSTITUA a rota /order-paid por esta versão
 router.post('/order-paid', verifyShopifyWebhook, async (req, res) => {
     try {
         const order = req.body;
