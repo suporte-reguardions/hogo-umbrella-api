@@ -168,6 +168,115 @@ const updateProductStatus = async (productId, phase, tags) => {
     console.log(`✅ Produto ${productId} atualizado para fase: ${phase}`);
 };
 
+// NOVA FUNÇÃO: Atualiza o produto ativo no shop
+const updateActiveProduct = async (settings) => {
+    try {
+        const now = getTestDate();
+        const currentDay = now.getDate();
+
+        let targetPhase;
+
+        // Define qual fase buscar baseado no dia atual
+        if (currentDay >= settings.public_start_day && currentDay <= settings.public_end_day) {
+            targetPhase = 'public';
+            console.log(`🎯 Buscando produto em PUBLIC SALE (dias ${settings.public_start_day}-${settings.public_end_day})`);
+        } else if (currentDay >= settings.preorder_start_day) {
+            targetPhase = 'preorder';
+            console.log(`🎯 Buscando produto em PREORDER (a partir do dia ${settings.preorder_start_day})`);
+        } else {
+            console.log('⏸️ Fora do período de vendas (antes do dia 1). Nenhum produto será definido como ativo.');
+            return { success: true, message: 'Nenhum produto ativo neste período' };
+        }
+
+        // Busca TODOS os produtos
+        const allProducts = await shopifyRequest('products.json?limit=250');
+        
+        // Filtra o produto com a fase correta
+        let activeProduct = null;
+
+        for (const product of allProducts.products) {
+            // Busca metafield sale_phase
+            const metafields = await shopifyRequest(`products/${product.id}/metafields.json`);
+            
+            const phaseMeta = metafields.metafields.find(
+                m => m.namespace === 'custom' && m.key === 'sale_phase'
+            );
+
+            if (phaseMeta && phaseMeta.value === targetPhase) {
+                activeProduct = product;
+                console.log(`✅ Produto encontrado: ${product.title} (ID: ${product.id}) - Fase: ${targetPhase}`);
+                break; // Pega o primeiro encontrado
+            }
+        }
+
+        if (!activeProduct) {
+            console.warn(`⚠️ Nenhum produto encontrado na fase "${targetPhase}"`);
+            return { success: false, message: `Nenhum produto em ${targetPhase}` };
+        }
+
+        // 🔧 Busca o metafield do shop (se existir)
+        const shopMetafields = await shopifyRequest('metafields.json?namespace=custom&key=active_product');
+
+        const activeProductMeta = shopMetafields.metafields.find(
+            m => m.namespace === 'custom' && m.key === 'active_product'
+        );
+
+        // Monta o GID da Shopify (formato obrigatório para product_reference)
+        const productGid = `gid://shopify/Product/${activeProduct.id}`;
+
+        if (activeProductMeta) {
+            // Atualiza metafield existente
+            if (activeProductMeta.value === productGid) {
+                console.log('✅ Produto ativo já está correto. Nenhuma atualização necessária.');
+                return { success: true, message: 'Já está atualizado', productId: activeProduct.id };
+            }
+
+            await shopifyRequest(
+                `metafields/${activeProductMeta.id}.json`,
+                'PUT',
+                {
+                    metafield: {
+                        value: productGid,
+                        type: 'product_reference'
+                    }
+                }
+            );
+
+            console.log(`✅ Metafield active_product atualizado para: ${activeProduct.title}`);
+
+        } else {
+            // Cria metafield se não existir
+            await shopifyRequest(
+                'metafields.json',
+                'POST',
+                {
+                    metafield: {
+                        namespace: 'custom',
+                        key: 'active_product',
+                        value: productGid,
+                        type: 'product_reference'
+                    }
+                }
+            );
+
+            console.log(`✨ Metafield active_product criado com: ${activeProduct.title}`);
+        }
+
+        return {
+            success: true,
+            activeProduct: {
+                id: activeProduct.id,
+                title: activeProduct.title,
+                phase: targetPhase
+            }
+        };
+
+    } catch (error) {
+        console.error('❌ Erro ao atualizar produto ativo:', error.message);
+        throw error;
+    }
+};
+
 // FUNÇÃO PRINCIPAL - Processa todos os produtos
 const processProductCycles = async () => {
     try {
@@ -268,12 +377,16 @@ const processProductCycles = async () => {
             }
         }
 
+        
+        console.log('\n🎯 Atualizando produto ativo no shop...');
+        const activeProductResult = await updateActiveProduct(settings);
         console.log(`✅ Processamento concluído. ${updatedCount} produtos atualizados.`);
 
         return {
             success: true,
             processed: allProducts.length,
-            updated: updatedCount
+            updated: updatedCount,
+            activeProduct: activeProductResult
         };
 
     } catch (error) {
@@ -285,5 +398,6 @@ const processProductCycles = async () => {
 module.exports = { 
     processProductCycles,
     determineProductPhase,
-    getThemeSettings
+    getThemeSettings,
+    updateActiveProduct
 };
