@@ -235,26 +235,26 @@ const ensureYearTag = async (productId, currentTags, dataReferencia) => {
         console.log(`✅ Tag "${yearTag}" adicionada ao produto ${productId}`);
         return newTags;
 
-    } catch (error) {
-        console.error(`❌ [DEBUG] Erro ao adicionar tag ao produto ${productId}:`, error.message);
-        console.error(`❌ [DEBUG] Stack:`, error.stack);
-        
-        const tagsArray = typeof currentTags === 'string' 
-            ? currentTags.split(',').map(t => t.trim()).filter(t => t)
-            : currentTags;
-        return tagsArray;
-    }
-};
-
-const getThemeSettings = async () => {
-    return {
-        public_start_day: parseInt(process.env.PUBLIC_START_DAY) || 1,
-        public_end_day: parseInt(process.env.PUBLIC_END_DAY) || 7,
-        preorder_start_day: parseInt(process.env.PREORDER_START_DAY) || 8
+        } catch (error) {
+            console.error(`❌ [DEBUG] Erro ao adicionar tag ao produto ${productId}:`, error.message);
+            console.error(`❌ [DEBUG] Stack:`, error.stack);
+            
+            const tagsArray = typeof currentTags === 'string' 
+                ? currentTags.split(',').map(t => t.trim()).filter(t => t)
+                : currentTags;
+            return tagsArray;
+        }
     };
-};
 
-const determineProductPhase = (dataReferencia, settings) => {
+    const getThemeSettings = async () => {
+        return {
+            public_start_day: parseInt(process.env.PUBLIC_START_DAY) || 1,
+            public_end_day: parseInt(process.env.PUBLIC_END_DAY) || 7,
+            preorder_start_day: parseInt(process.env.PREORDER_START_DAY) || 8
+        };
+    };
+
+    const determineProductPhase = (dataReferencia, settings) => {
     const now = getTestDate();
     
     const currentYear = now.getFullYear();
@@ -271,10 +271,11 @@ const determineProductPhase = (dataReferencia, settings) => {
 
     if (process.env.TEST_MODE === 'true') {
         console.log(`📅 Data atual (Frankfurt): ${now.toISOString().split('T')[0]}, Dia: ${currentDay}`);
-        console.log(`🎯 Produto: ${dataReferencia}, Ano/Mês: ${productYear}/${productMonth + 1}`);
+        console.log(`🎯 Produto: ${dataReferencia}, Ano/Mês: ${productYear}/${productMonth + 1}, Dia: ${refDay}`);
         console.log(`📊 Diferença de meses: ${monthDiff}`);
     }
 
+    // Produto 2+ meses no futuro
     if (monthDiff > 1) {
         if (process.env.TEST_MODE === 'true') {
             console.log(`➡️ UPCOMING (${monthDiff} meses no futuro)`);
@@ -282,6 +283,7 @@ const determineProductPhase = (dataReferencia, settings) => {
         return 'upcoming';
     }
 
+    // Produto do próximo mês
     if (monthDiff === 1) {
         if (currentDay >= settings.preorder_start_day) {
             if (process.env.TEST_MODE === 'true') {
@@ -295,22 +297,37 @@ const determineProductPhase = (dataReferencia, settings) => {
         return 'upcoming';
     }
 
+    // PRODUTO DO MÊS ATUAL
     if (monthDiff === 0) {
-        if (currentDay >= settings.public_start_day && currentDay <= settings.public_end_day) {
+        // Se estamos ANTES do dia de referência do produto
+        if (currentDay < refDay) {
             if (process.env.TEST_MODE === 'true') {
-                console.log(`➡️ PUBLIC (mês atual, dias ${settings.public_start_day}-${settings.public_end_day})`);
+                console.log(`➡️ UPCOMING (mês atual, mas antes do dia ${refDay})`);
+            }
+            return 'upcoming';
+        }
+
+        // Calcula quantos dias se passaram desde a data de referência
+        const daysSinceRef = currentDay - refDay;
+        
+        // Venda pública: dia de referência + 6 dias (total 7 dias)
+        if (daysSinceRef >= 0 && daysSinceRef <= 6) {
+            if (process.env.TEST_MODE === 'true') {
+                console.log(`➡️ PUBLIC (${daysSinceRef} dias após data referência ${refDay})`);
             }
             return 'public';
         }
-        if (currentDay > settings.public_end_day) {
+
+        // Após 7 dias da data de referência = arquivado
+        if (daysSinceRef > 6) {
             if (process.env.TEST_MODE === 'true') {
-                console.log(`➡️ ARCHIVED (mês atual, após dia ${settings.public_end_day})`);
+                console.log(`➡️ ARCHIVED (${daysSinceRef} dias após data referência, limite é 6)`);
             }
             return 'archived';
         }
-        return 'upcoming';
     }
 
+    // Produto de meses passados
     if (monthDiff < 0) {
         if (process.env.TEST_MODE === 'true') {
             console.log(`➡️ ARCHIVED (${Math.abs(monthDiff)} meses no passado)`);
@@ -476,18 +493,36 @@ const processProductCycles = async () => {
                 return false;
             }
 
-            const productYear = new Date(dataRefMeta.value).getFullYear();
+            // Parse manual para evitar problemas de timezone
+            const [prodYear, prodMonth, prodDay] = dataRefMeta.value.split('-').map(Number);
             
-            // Em dezembro, aceita ano atual e próximo
             if (isDecember) {
-                return productYear === currentYear || productYear === currentYear + 1;
+                // Dezembro: processa ano atual E próximo
+                const isValid = prodYear === currentYear || prodYear === currentYear + 1;
+                if (!isValid && process.env.TEST_MODE === 'true') {
+                    console.log(`⏭️ [FILTRO] Ignorando produto ${product.id} - Ano ${prodYear}`);
+                }
+                return isValid;
             }
             
-            // Outros meses, só ano atual
-            return productYear === currentYear;
+            // Outros meses: só ano atual (IMPORTANTE: Não precisa filtrar por mês!)
+            const isValid = prodYear === currentYear;
+            if (!isValid && process.env.TEST_MODE === 'true') {
+                console.log(`⏭️ [FILTRO] Ignorando produto ${product.id} - Ano ${prodYear}`);
+            }
+            return isValid;
         });
 
-        console.log(`🎯 Produtos válidos: ${validProducts.length}`);
+        console.log(`🎯 Produtos válidos após filtro: ${validProducts.length}`);
+
+        // Mostra quais produtos passaram
+        if (process.env.TEST_MODE === 'true') {
+            console.log('📋 Produtos que serão processados:');
+            validProducts.forEach(p => {
+                const dataRef = p.metafields.find(m => m.key === 'data_referencia')?.value;
+                console.log(`  - ${p.id} (${p.title}): ${dataRef}`);
+            });
+        }
 
         let updatedCount = 0;
 
