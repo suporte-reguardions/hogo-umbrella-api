@@ -127,12 +127,19 @@ const listInvites = async (filters, page = 1, limit = 10) => {
         addFilter('is_blocked', false);
     }
 
+    // Status "active" EXIGE claimed_at
     if (filters.status === 'active') {
-        query += ` AND claimed_at IS NOT NULL AND is_used = false`;
-        countQuery += ` AND claimed_at IS NOT NULL AND is_used = false`;
+        query += ` AND claimed_at IS NOT NULL AND is_used = false AND is_blocked = false`;
+        countQuery += ` AND claimed_at IS NOT NULL AND is_used = false AND is_blocked = false`;
     }
-    else if (filters.is_used === 'true' || filters.is_used === true) addFilter('is_used', true);
-    else if (filters.is_used === 'false' || filters.is_used === false) addFilter('is_used', false);
+    // is_used=false EXCLUI os que foram reivindicados (FREE = nunca tocado)
+    else if (filters.is_used === 'false' || filters.is_used === false) {
+        query += ` AND is_used = false AND claimed_at IS NULL AND is_blocked = false`;
+        countQuery += ` AND is_used = false AND claimed_at IS NULL AND is_blocked = false`;
+    }
+    else if (filters.is_used === 'true' || filters.is_used === true) {
+        addFilter('is_used', true);
+    }
 
     if (filters.is_sent === 'true' || filters.is_sent === true) addFilter('is_sent', true);
     if (filters.is_sent === 'false' || filters.is_sent === false) addFilter('is_sent', false);
