@@ -20,7 +20,7 @@ const verifyHmac = (req, res, next) => {
     const timeDiff = now - parseInt(timestamp);
 
     if (timeDiff > 300 || timeDiff < -60) { // Aceita até 1min no futuro (relógios descalibrados)
-        return res.status(403).json({ error: 'Requisição expirada. Recarregue a página.' });
+        return res.status(403).json({ error: 'Session expired. Please reload the page.' });
     }
 
     // 3. Recriar a Assinatura (O Segredo)
