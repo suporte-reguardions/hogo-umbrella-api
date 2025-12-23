@@ -232,8 +232,8 @@ const blockInvite = async (req, res) => {
         const invite = await inviteService.blockInvite(code);
         
         return res.status(200).json({
-            message: 'Cupom bloqueado PERMANENTEMENTE.',
-            warning: 'Este cupom não pode mais ser desbloqueado.',
+            message: 'Coupon PERMANENTLY blocked.',
+            warning: 'This invite can no longer be unblocked.',
             data: invite
         });
 
