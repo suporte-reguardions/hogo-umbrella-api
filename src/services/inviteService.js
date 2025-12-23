@@ -121,10 +121,14 @@ const listInvites = async (filters, page = 1, limit = 10) => {
         params.push(`%${filters.search}%`);
         paramIndex++;
     }
-    
-    // Filtro Boolean
-    if (filters.is_used === 'true' || filters.is_used === true) addFilter('is_used', true);
-    if (filters.is_used === 'false' || filters.is_used === false) addFilter('is_used', false);
+
+    // Filtro específico para "active" (claimed + não usado)
+    if (filters.status === 'active') {
+        query += ` AND claimed_at IS NOT NULL AND is_used = false`;
+        countQuery += ` AND claimed_at IS NOT NULL AND is_used = false`;
+    }
+    else if (filters.is_used === 'true' || filters.is_used === true) addFilter('is_used', true);
+    else if (filters.is_used === 'false' || filters.is_used === false) addFilter('is_used', false);
 
     // Filtro por enviado
     if (filters.is_sent === 'true' || filters.is_sent === true) addFilter('is_sent', true);
