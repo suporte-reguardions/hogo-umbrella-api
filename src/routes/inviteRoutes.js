@@ -25,4 +25,7 @@ router.get('/check-active/:userId', inviteController.checkActive); // Verifica c
 // Valida Checkout
 router.post('/validate-checkout-access', inviteController.validateCheckoutAccess); // Valida acesso ao checkout via cupom
 
+// Bloquear invite
+router.patch('/block/:code', inviteController.blockInvite);
+
 module.exports = router;

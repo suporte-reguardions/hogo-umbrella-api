@@ -225,7 +225,23 @@ const validateCheckoutAccess = async (req, res) => {
     }
 };
 
-// Atualize o exports
+const blockInvite = async (req, res) => {
+    try {
+        const { code } = req.params;
+
+        const invite = await inviteService.blockInvite(code);
+        
+        return res.status(200).json({
+            message: 'Cupom bloqueado PERMANENTEMENTE.',
+            warning: 'Este cupom não pode mais ser desbloqueado.',
+            data: invite
+        });
+
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
+    }
+};
+
 module.exports = { 
     generate, 
     activate, 
@@ -237,5 +253,6 @@ module.exports = {
     history,
     markSent,
     checkActive,
-    validateCheckoutAccess
+    validateCheckoutAccess,
+    blockInvite
 };

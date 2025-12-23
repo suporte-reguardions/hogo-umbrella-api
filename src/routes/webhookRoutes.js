@@ -87,7 +87,9 @@ const verifyShopifyWebhook = (req, res, next) => {
     }
 };
 
-// 🔧 SUBSTITUA a rota /order-paid por esta versão
+// Rota para o webhook de pedido pago
+// ...existing code...
+
 router.post('/order-paid', verifyShopifyWebhook, async (req, res) => {
     try {
         const order = req.body;
@@ -107,7 +109,6 @@ router.post('/order-paid', verifyShopifyWebhook, async (req, res) => {
             return res.status(200).send('OK - No customer');
         }
 
-        // ✅ NOVA VALIDAÇÃO: Verifica se há produtos em preorder
         const hasPreorder = await hasPreorderProduct(order.line_items || []);
 
         if (!hasPreorder) {
@@ -121,11 +122,12 @@ router.post('/order-paid', verifyShopifyWebhook, async (req, res) => {
 
         console.log('🎯 Pedido contém produto(s) em PRE-ORDER. Processando cupom...');
 
-        // Busca 1 cupom ATIVO ALEATÓRIO do usuário
+        // Busca cupom válido (não bloqueado, não usado)
         const query = `
             SELECT * FROM invites 
             WHERE user_id = $1 
             AND is_used = false
+            AND is_blocked = false
             ORDER BY RANDOM()
             LIMIT 1
         `;
@@ -133,7 +135,23 @@ router.post('/order-paid', verifyShopifyWebhook, async (req, res) => {
         const result = await db.query(query, [customerId]);
 
         if (result.rows.length === 0) {
-            console.log('ℹ️ Nenhum cupom ativo encontrado para este usuário');
+            console.log('❌ Nenhum cupom VÁLIDO encontrado para este usuário');
+            
+            // Verifica se tem cupons bloqueados
+            const blockedCheck = await db.query(
+                `SELECT COUNT(*) FROM invites WHERE user_id = $1 AND is_blocked = true`,
+                [customerId]
+            );
+            
+            if (parseInt(blockedCheck.rows[0].count) > 0) {
+                console.log('⚠️ Usuário tem cupons BLOQUEADOS');
+                return res.status(403).json({
+                    success: false,
+                    error: 'All your coupons are blocked. Contact support.',
+                    blockedCoupons: true
+                });
+            }
+
             return res.status(200).send('OK - No active invite');
         }
 
@@ -141,7 +159,6 @@ router.post('/order-paid', verifyShopifyWebhook, async (req, res) => {
 
         console.log(`🎲 Cupom sorteado: ${selectedInvite.code}`);
 
-        // Marca como usado
         const updateQuery = `
             UPDATE invites 
             SET is_used = true, 

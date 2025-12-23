@@ -92,7 +92,6 @@ const listInvites = async (filters, page = 1, limit = 10) => {
     let countQuery = `SELECT COUNT(*) FROM invites WHERE 1=1`;
     let paramIndex = 1;
 
-    // Helper para adicionar filtros
     const addFilter = (field, value, operator = '=') => {
         if (value !== undefined && value !== null && value !== '') {
             if (operator === 'ILIKE') {
@@ -114,7 +113,6 @@ const listInvites = async (filters, page = 1, limit = 10) => {
     addFilter('provider_identity', filters.providerIdentity, 'ILIKE');
     addFilter('user_email', filters.user_email, 'ILIKE');
     
-    // FILTRO DE BUSCA GLOBAL
     if (filters.search) {
         query += ` AND (code ILIKE $${paramIndex} OR user_email ILIKE $${paramIndex} OR provider ILIKE $${paramIndex})`;
         countQuery += ` AND (code ILIKE $${paramIndex} OR user_email ILIKE $${paramIndex} OR provider ILIKE $${paramIndex})`;
@@ -122,7 +120,13 @@ const listInvites = async (filters, page = 1, limit = 10) => {
         paramIndex++;
     }
 
-    // Filtro específico para "active" (claimed + não usado)
+    // is_blocked
+    if (filters.is_blocked === 'true' || filters.is_blocked === true) {
+        addFilter('is_blocked', true);
+    } else if (filters.is_blocked === 'false' || filters.is_blocked === false) {
+        addFilter('is_blocked', false);
+    }
+
     if (filters.status === 'active') {
         query += ` AND claimed_at IS NOT NULL AND is_used = false`;
         countQuery += ` AND claimed_at IS NOT NULL AND is_used = false`;
@@ -130,11 +134,9 @@ const listInvites = async (filters, page = 1, limit = 10) => {
     else if (filters.is_used === 'true' || filters.is_used === true) addFilter('is_used', true);
     else if (filters.is_used === 'false' || filters.is_used === false) addFilter('is_used', false);
 
-    // Filtro por enviado
     if (filters.is_sent === 'true' || filters.is_sent === true) addFilter('is_sent', true);
     if (filters.is_sent === 'false' || filters.is_sent === false) addFilter('is_sent', false);
     
-    // Filtro de Data
     if (filters.startDate) {
         query += ` AND created_at >= $${paramIndex}`;
         countQuery += ` AND created_at >= $${paramIndex}`;
@@ -169,6 +171,7 @@ const listInvites = async (filters, page = 1, limit = 10) => {
 };
 
 // 4. SALVAR NA CARTEIRA (CLAIM) - SEM GASTAR
+// (verificação de bloqueio)
 const claimInvite = async (code, userData) => {
     const checkQuery = `SELECT * FROM invites WHERE code = $1`;
     const checkResult = await db.query(checkQuery, [code]);
@@ -176,17 +179,19 @@ const claimInvite = async (code, userData) => {
     if (checkResult.rows.length === 0) throw new Error('Invalid code.');
     const invite = checkResult.rows[0];
 
-    // CORREÇÃO: Verifica se já pertence a OUTRO usuário (não null ou guest)
+    // ✅ VERIFICAÇÃO: Cupom bloqueado
+    if (invite.is_blocked) {
+        throw new Error('This coupon has been blocked and cannot be used.');
+    }
+
     if (invite.user_id && invite.user_id !== 'guest' && invite.user_id !== userData.userId) {
         throw new Error('This coupon already belongs to another user.');
     }
 
-    // Verifica se já está na carteira do usuário atual
     if (invite.user_id === userData.userId && invite.claimed_at) {
         throw new Error('This coupon is already in your wallet.');
     }
 
-    // Verifica se já foi usado
     if (invite.is_used) {
         throw new Error('This coupon has already been used.');
     }
@@ -207,14 +212,18 @@ const claimInvite = async (code, userData) => {
     return result.rows[0];
 };
 
-// 5. GASTAR O CUPOM (ACTIVATE/BURN)
+// 5. GASTAR O CUPOM (ACTIVATE/BURN) -> verifica bloqueio
 const activateInvite = async (code, userData) => {
-    // Garante que o cupom é válido/pertence ao usuário antes de gastar
     let invite;
     try {
         invite = await claimInvite(code, userData); 
     } catch (e) {
         throw e;
+    }
+
+    // Verifica bloqueio antes de gastar
+    if (invite.is_blocked) {
+        throw new Error('This coupon has been blocked and cannot be used.');
     }
 
     const burnQuery = `
@@ -244,7 +253,6 @@ const syncGuestHistory = async (email, newUserId) => {
 
 // 7. OBTER CARTEIRA DO USUÁRIO
 const getUserWallet = async (userId, type = 'active', page = 1, limit = 10) => {
-    // PROTEÇÃO DE SEGURANÇA: GUEST NÃO PODE VER CARTEIRA
     if (!userId || userId === 'guest') {
         throw new Error('É necessário ter uma conta logada para visualizar a carteira.');
     }
@@ -256,11 +264,17 @@ const getUserWallet = async (userId, type = 'active', page = 1, limit = 10) => {
         SELECT * FROM invites 
         WHERE user_id = $1 
         AND is_used = $2
+        AND is_blocked = false
         ORDER BY updated_at DESC
         LIMIT $3 OFFSET $4
     `;
     
-    const countQuery = `SELECT COUNT(*) FROM invites WHERE user_id = $1 AND is_used = $2`;
+    const countQuery = `
+        SELECT COUNT(*) FROM invites 
+        WHERE user_id = $1 
+        AND is_used = $2
+        AND is_blocked = false
+    `;
 
     const [rows, count] = await Promise.all([
         db.query(query, [userId, isUsedValue, limit, offset]),
@@ -279,7 +293,6 @@ const getUserWallet = async (userId, type = 'active', page = 1, limit = 10) => {
 
 // 8. VERIFICAR SE USUÁRIO TEM CUPONS ATIVOS (apenas contagem)
 const hasActiveInvites = async (userId) => {
-    // PROTEÇÃO: GUEST NÃO PODE VERIFICAR
     if (!userId || userId === 'guest') {
         return { hasInvites: false, count: 0 };
     }
@@ -289,6 +302,7 @@ const hasActiveInvites = async (userId) => {
         FROM invites 
         WHERE user_id = $1 
         AND is_used = false
+        AND is_blocked = false
     `;
     
     const result = await db.query(query, [userId]);
@@ -327,6 +341,34 @@ const markAsSent = async (code) => {
     return result.rows[0];
 };
 
+// Bloquear convite (PERMANENTE)
+const blockInvite = async (code) => {
+    const checkQuery = `SELECT * FROM invites WHERE code = $1`;
+    const checkResult = await db.query(checkQuery, [code]);
+
+    if (checkResult.rows.length === 0) {
+        throw new Error('Código não encontrado.');
+    }
+
+    const invite = checkResult.rows[0];
+
+    if (invite.is_blocked) {
+        throw new Error('Este código já está bloqueado.');
+    }
+
+    const updateQuery = `
+        UPDATE invites 
+        SET is_blocked = true, 
+            blocked_at = NOW(),
+            updated_at = NOW()
+        WHERE code = $1
+        RETURNING *;
+    `;
+
+    const result = await db.query(updateQuery, [code]);
+    return result.rows[0];
+};
+
 module.exports = { 
     createInvite, 
     createBatch, 
@@ -336,5 +378,6 @@ module.exports = {
     syncGuestHistory, 
     getUserWallet,
     markAsSent,
-    hasActiveInvites
+    hasActiveInvites,
+    blockInvite
 };
